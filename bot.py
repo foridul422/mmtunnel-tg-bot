@@ -40,6 +40,17 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+def keep_alive_worker():
+    """Pings Render URL every 8 minutes to prevent free tier spin-down"""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "https://mmtunnel-tg-bot.onrender.com")
+    time.sleep(30)
+    while True:
+        try:
+            requests.get(render_url, timeout=10)
+        except Exception:
+            pass
+        time.sleep(480)  # Ping every 8 mins to keep free instance active
+
 
 # ================= DECRYPTION ENGINE =================
 API_URL = "https://strongteam.co/api/mmtunnel/"
@@ -488,5 +499,7 @@ def start_bot():
 if __name__ == "__main__":
     # Start Flask background server for Render
     threading.Thread(target=run_flask, daemon=True).start()
+    # Start Keep-alive ping worker to prevent Render sleep
+    threading.Thread(target=keep_alive_worker, daemon=True).start()
     # Start Bot
     start_bot()
