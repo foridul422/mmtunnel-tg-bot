@@ -9,11 +9,14 @@
 import os
 import io
 import sys
+import time
 import json
 import base64
 import datetime
 import threading
 import requests
+from typing import Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -46,6 +49,11 @@ ARGON2_TIME = 3
 ARGON2_MEM = 16384
 ARGON2_PARALLEL = 1
 ARGON2_KEYLEN = 32
+
+# In-memory Cache to eliminate lag & respond instantly
+CACHED_DATA = None
+CACHE_TIMESTAMP = 0
+CACHE_TTL = 300  # 5 minutes cache
 
 
 def decrypt_core(raw_bytes: bytes, password: bytes) -> bytes:
@@ -90,7 +98,31 @@ def decrypt_val(val: Any) -> str:
         return val
 
 
+def decrypt_server_item(s: Dict[str, Any], def_u: str, def_p: str) -> Dict[str, Any]:
+    c = dict(s)
+    fields = [
+        "ServerIPHost", "OVPNUser", "OVPNPass", "CustomCertificate", 
+        "SlowDNSHost", "SlowDNSKey", "V2rayUUID", "UDP_obfs", 
+        "UDP_user", "H2pass", "TrojanPass"
+    ]
+    for k in fields:
+        if k in c:
+            c[k] = decrypt_val(c[k])
+
+    # Auto-fill default credentials if server uses default user or is empty
+    if c.get("isdefUser") or not c.get("OVPNUser"):
+        c["OVPNUser"] = def_u
+        c["OVPNPass"] = def_p
+
+    return c
+
+
 def decrypt_mmtunnel_live() -> Dict[str, Any]:
+    global CACHED_DATA, CACHE_TIMESTAMP
+    now = time.time()
+    if CACHED_DATA and (now - CACHE_TIMESTAMP < CACHE_TTL):
+        return CACHED_DATA
+
     headers = {
         "User-Agent": "Go-http-client/1.1",
         "Content-Type": "application/x-www-form-urlencoded"
@@ -105,16 +137,16 @@ def decrypt_mmtunnel_live() -> Dict[str, Any]:
     decrypted_bytes = decrypt_core(raw_payload, KEY_LAYER1)
     data = json.loads(decrypted_bytes.decode("utf-8"))
 
-    # Decrypt Servers
-    decrypted_servers = []
-    for s in data.get("Servers", []):
-        c = dict(s)
-        for k in ["ServerIPHost", "OVPNUser", "OVPNPass", "CustomCertificate", "SlowDNSHost", "SlowDNSKey", "V2rayUUID", "UDP_obfs", "UDP_user"]:
-            if k in c:
-                c[k] = decrypt_val(c[k])
-        decrypted_servers.append(c)
+    def_u = data.get("DefOVPNUser", "sandoki")
+    def_p = data.get("DefOVPNPass", "sandoki")
 
-    # Decrypt Networks (clean dummy encrypted strings)
+    # Decrypt Servers with multi-threading (Fast ~1.5s)
+    raw_servers = data.get("Servers", [])
+    threads = min(os.cpu_count() or 4, 8)
+    with ThreadPoolExecutor(max_workers=threads) as ex:
+        decrypted_servers = list(ex.map(lambda s: decrypt_server_item(s, def_u, def_p), raw_servers))
+
+    # Fast Clean Networks
     decrypted_networks = []
     for n in data.get("Networks", []):
         c = dict(n)
@@ -140,8 +172,8 @@ def decrypt_mmtunnel_live() -> Dict[str, Any]:
         "Telegram": data.get("Telegram", ""),
         "WhatsApp": data.get("WhatsApp", ""),
         "Facebook": data.get("Facebook", ""),
-        "DefOVPNUser": data.get("DefOVPNUser", "sandoki"),
-        "DefOVPNPass": data.get("DefOVPNPass", "sandoki"),
+        "DefOVPNUser": def_u,
+        "DefOVPNPass": def_p,
         "HysteriaUser": data.get("HysteriaUser", ""),
         "HysteriaOBFS": data.get("HysteriaOBFS", ""),
         "DefaultOVPNCert": data.get("DefaultOVPNCert", ""),
@@ -150,6 +182,11 @@ def decrypt_mmtunnel_live() -> Dict[str, Any]:
         "Servers": decrypted_servers,
         "Networks": decrypted_networks
     }
+
+    # Update cache
+    CACHED_DATA = full_output
+    CACHE_TIMESTAMP = now
+
     return full_output
 
 
@@ -204,7 +241,7 @@ def start_bot():
             )
 
         elif call.data == "dec_mmtunnel":
-            bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting MM Tunnel Live Config...")
+            bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting MM Tunnel Config...")
             
             # Send loading message
             status_msg = bot.send_message(
@@ -231,8 +268,8 @@ def start_bot():
                     "✅ <b>MM Tunnel 100% Decrypted Successfully!</b>\n\n"
                     f"📦 <b>Version:</b> <code>{version}</code>\n"
                     f"📝 <b>Release Notes:</b> {notes}\n"
-                    f"🔐 <b>Def OpenVPN User:</b> <code>{ovpn_user}</code>\n"
-                    f"🔑 <b>Def OpenVPN Pass:</b> <code>{ovpn_pass}</code>\n"
+                    f"🔐 <b>OpenVPN User:</b> <code>{ovpn_user}</code>\n"
+                    f"🔑 <b>OpenVPN Pass:</b> <code>{ovpn_pass}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{servers_count}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{networks_count}</code>\n\n"
                     "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
