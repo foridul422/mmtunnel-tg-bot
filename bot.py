@@ -440,101 +440,6 @@ def decrypt_ursa_field(val: str) -> str:
         return ";".join([decrypt_single_hex(p) for p in parts])
     return decrypt_single_hex(val)
 
-def generate_ursa_text_report(config: dict) -> str:
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
-    servers = config.get("Free_servers", [])
-    payloads = config.get("Payloads", [])
-    sips_raw = config.get("SIPs", "")
-    sips = [ip.strip() for ip in sips_raw.split(";") if ip.strip()]
-
-    lines = [
-        "=============================================================================",
-        "  URSA NET PRO (PRINCE BUILD 66) - 100% DECRYPTED CONFIGURATION",
-        "  Powered By : @Foridul_002 🇧🇩",
-        "  Bot        : @decryptvpnappbot",
-        f"  Date & Time: {now_str}",
-        "=============================================================================",
-        "",
-        "[+] CONFIGURATION SUMMARY:",
-        f"  • Config Version   : {config.get('Version', 'N/A')}",
-        f"  • UDP Version      : {config.get('UDPVersion', 'N/A')}",
-        f"  • Total Servers    : {len(servers)} Clusters",
-        f"  • Total Payloads   : {len(payloads)} Tweaks",
-        f"  • Dynamic SIPs Pool: {len(sips)} IPs",
-        f"  • Changelog        : {config.get('Changelogs', '').strip()}",
-        "",
-        "=============================================================================",
-        "  SECTION 1: DECRYPTED SERVERS LIST (ALL 19 CLUSTERS)",
-        "=============================================================================",
-    ]
-
-    for idx, s in enumerate(servers, 1):
-        name = s.get("server_name", f"Server {idx}")
-        cat = s.get("category", "unknown").upper()
-        host = s.get("server_host", "")
-        port = s.get("server_port", "")
-        u_port = s.get("server_udp_port", "")
-        ssl_port = s.get("ssl_port", "")
-
-        ports_str = []
-        if port: ports_str.append(f"Port: {port}")
-        if ssl_port: ports_str.append(f"SSL: {ssl_port}")
-        if u_port: ports_str.append(f"UDP: {u_port}")
-
-        lines.append(f"{idx}. {name} [{cat}]")
-        if host == "[sip]":
-            lines.append("   • Host Cluster : Dynamic SIP Pool (uses any IP from SIPs pool)")
-        elif not host or host == "auto":
-            lines.append(f"   • Host Cluster : {host or 'Auto / Direct'}")
-        else:
-            h_list = [h.strip() for h in host.split(";") if h.strip()]
-            if len(h_list) > 1:
-                lines.append(f"   • Host Nodes ({len(h_list)} Nodes) :")
-                for node in h_list:
-                    lines.append(f"       - {node}")
-            else:
-                lines.append(f"   • Host Node    : {host}")
-
-        if ports_str:
-            lines.append(f"   • Ports        : {' | '.join(ports_str)}")
-        lines.append("")
-
-    lines.extend([
-        "=============================================================================",
-        "  SECTION 2: DYNAMIC SIPs IP POOL",
-        "=============================================================================",
-        f"Total Registered IPs: {len(sips)}",
-        ", ".join(sips) if sips else "None",
-        "",
-        "=============================================================================",
-        "  SECTION 3: DECRYPTED TWEAKS / PAYLOADS (ALL 255 TWEAKS)",
-        "=============================================================================",
-    ])
-
-    for idx, p in enumerate(payloads, 1):
-        name = p.get("friendly_name", f"Tweak {idx}")
-        cat = p.get("category", "")
-        method = p.get("method", "").upper()
-        port = p.get("port", "")
-        host = p.get("host", "")
-        sausage = p.get("sausage", "")
-
-        lines.append(f"{idx}. {name}")
-        lines.append(f"   • Method   : {method} | Category: {cat} | Port: {port}")
-        if host and host != "Pulled":
-            h_parts = [h.strip() for h in host.split(";") if h.strip()]
-            if len(h_parts) > 3:
-                lines.append(f"   • SNI/Host ({len(h_parts)} domains) : {h_parts[0]}, {h_parts[1]} ... (+{len(h_parts)-2} more)")
-            else:
-                lines.append(f"   • SNI/Host : {host}")
-        else:
-            lines.append("   • SNI/Host : Direct / Default")
-        if sausage:
-            lines.append(f"   • Sausage  : {sausage}")
-        lines.append("")
-
-    return "\n".join(lines)
-
 def decrypt_ursa_live() -> Dict[str, Any]:
     global URSA_CACHED_DATA, URSA_CACHE_TIMESTAMP
     now = time.time()
@@ -552,29 +457,42 @@ def decrypt_ursa_live() -> Dict[str, Any]:
 
     config = json.loads(raw_decrypted.decode("utf-8", errors="replace"))
 
-    # Decrypt Free_servers completely in place
+    # Decrypt Free_servers completely in place (server_host, etc.)
     for s in config.get("Free_servers", []):
         for f in ["server_host", "username", "password", "custom_cert"]:
             if f in s and s[f]:
                 s[f] = decrypt_ursa_field(s[f])
 
-    # Decrypt Payloads completely in place
+    # Decrypt Payloads completely in place (host, payload, sausage, dothost)
     for p in config.get("Payloads", []):
         for f in ["host", "payload", "sausage", "dothost"]:
             if f in p and p[f]:
                 p[f] = decrypt_ursa_field(p[f])
-        p["decrypted_host"] = p.get("host", "")
 
     # Decrypt top level payloads
     for f in ["HopPayload", "DualConnectPayload", "SSLPayload", "CustomCert", "CDNHosts", "FrontHosts", "BackHosts"]:
         if f in config and config[f]:
             config[f] = decrypt_ursa_field(config[f])
 
-    txt_content = generate_ursa_text_report(config)
+    full_output = {
+        "CREDITS": [
+            {
+                "Owner": "Powered By @Foridul_002 🇧🇩",
+                "Bot": "Decrypted By @decryptvpnappbot 🤖",
+                "Date & Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
+            }
+        ],
+        **config
+    }
+
+    raw_txt = json.dumps(full_output, indent=2, ensure_ascii=False)
 
     result = {
-        "config": config,
-        "txt_content": txt_content
+        "config": full_output,
+        "raw_txt": raw_txt,
+        "version": config.get("Version", "N/A"),
+        "total_servers": len(config.get("Free_servers", [])),
+        "total_payloads": len(config.get("Payloads", []))
     }
 
     URSA_CACHED_DATA = result
@@ -742,66 +660,38 @@ def start_bot():
 
             try:
                 res = decrypt_ursa_live()
-                config = res["config"]
-                txt_content = res["txt_content"]
+                raw_txt = res["raw_txt"]
+                version = res["version"]
+                total_servers = res["total_servers"]
+                total_payloads = res["total_payloads"]
 
-                # 1. Text Report File
-                txt_bytes = io.BytesIO(txt_content.encode("utf-8"))
+                # Single TXT file containing complete decrypted raw data
+                txt_bytes = io.BytesIO(raw_txt.encode("utf-8"))
                 txt_bytes.name = "Ursa_Net_PRO_Decrypted.txt"
 
-                # 2. Clean Decrypted JSON File
-                formatted_json = json.dumps(config, indent=4, ensure_ascii=False)
-                json_bytes = io.BytesIO(formatted_json.encode("utf-8"))
-                json_bytes.name = "Ursa_Net_PRO_Decrypted.json"
-
-                version = config.get("Version", "N/A")
-                payloads = config.get("Payloads", [])
-                servers = config.get("Free_servers", [])
-                sips_count = len([ip for ip in config.get("SIPs", "").split(";") if ip.strip()])
-
-                # Server Preview (Top 4 servers)
-                server_preview_lines = []
-                for s in servers[1:5]:
-                    s_name = s.get("server_name", "")
-                    s_cat = s.get("category", "").upper()
-                    s_host = s.get("server_host", "")
-                    s_port = s.get("server_port", "")
-                    if s_host == "[sip]":
-                        target = "Dynamic SIP Pool"
-                    elif ";" in s_host:
-                        nodes = [n.strip() for n in s_host.split(";") if n.strip()]
-                        target = f"{nodes[0]} ({len(nodes)} nodes)"
-                    else:
-                        target = s_host or "Direct"
-                    if s_port:
-                        target += f":{s_port}"
-                    server_preview_lines.append(f"• <b>{s_name}</b> ({s_cat})\n  ➔ <code>{target}</code>")
-                server_preview = "\n".join(server_preview_lines)
-
                 caption = (
-                    "✅ <b>Ursa Net PRO 100% Decrypted Successfully!</b>\n\n"
+                    "✅ <b>Ursa Net PRO 100% Fully Decrypted!</b>\n\n"
                     f"📦 <b>Config Version:</b> <code>{version}</code>\n"
-                    f"🌐 <b>Free Servers:</b> <code>{len(servers)} Clusters (All Nodes 100% Decrypted)</code>\n"
-                    f"📡 <b>Total Tweaks/SNI:</b> <code>{len(payloads)} Payloads</code>\n"
-                    f"🛡 <b>Dynamic SIPs Pool:</b> <code>{sips_count} Server IPs</code>\n\n"
-                    "<b>🚀 Server Clusters Preview:</b>\n"
-                    f"{server_preview}\n\n"
-                    "📁 <i>সম্পূর্ণ সার্ভার ও পেলোড লিস্ট Text এবং JSON ফাইলে সংযুক্ত করা হয়েছে।</i>\n\n"
+                    f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
+                    f"📡 <b>Total Payloads:</b> <code>{total_payloads}</code>\n\n"
+                    "📁 <i>সমস্ত এনক্রিপ্ট করা ডাটা (সার্ভার হোস্ট, পেলোড, টুইক) কোনো ফিল্টারিং ছাড়া সম্পূর্ণ ডিকোড করে TXT ফাইলে দেওয়া হলো।</i>\n\n"
                     "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
                 )
 
-                # Send formatted TXT report with caption
+                # Send ONLY ONE txt file
                 bot.send_document(
                     chat_id,
                     txt_bytes,
                     caption=caption
                 )
-                # Send full decrypted JSON file
-                bot.send_document(
-                    chat_id,
-                    json_bytes
-                )
                 bot.delete_message(chat_id, status_msg.message_id)
+
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>Ursa Net PRO Decryption Failed!</b>\nError: <code>{e}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
 
             except Exception as e:
                 bot.edit_message_text(
