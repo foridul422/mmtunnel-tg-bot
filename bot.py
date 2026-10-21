@@ -342,6 +342,132 @@ def decrypt_terix_live() -> Dict[str, Any]:
     return result
 
 
+# ================= URSA NET PRO DECRYPTION ENGINE =================
+URSA_API_URL = "https://raw.githubusercontent.com/panigbatanc/UrsaNetPRO/main/JSONDEC2025"
+URSA_OUTER_KEY = b"...|..."
+URSA_INNER_KEY = b"4%PdXch>fkP]"
+URSA_CACHED_DATA = None
+URSA_CACHE_TIMESTAMP = 0
+URSA_CACHE_TTL = 300  # 5 minutes cache
+
+def _ursa_a(i: int, i2: int, i3: int, i4: int, i5: int, iArr: List[int]) -> int:
+    part1 = ((i ^ i2) + (iArr[(i4 & 3) ^ i5] ^ i3)) & 0xFFFFFFFF
+    part2 = (((i3 >> 5 ^ i2 << 2) + (i2 >> 3 ^ i3 << 4))) & 0xFFFFFFFF
+    return (part1 ^ part2) & 0xFFFFFFFF
+
+def _ursa_g(bArr: bytes, z: bool) -> List[int]:
+    length = (len(bArr) >> 2) if (len(bArr) & 3) == 0 else (len(bArr) >> 2) + 1
+    if z:
+        iArr = [0] * (length + 1)
+        iArr[length] = len(bArr)
+    else:
+        iArr = [0] * length
+    for i in range(len(bArr)):
+        i2 = i >> 2
+        iArr[i2] = (iArr[i2] | ((bArr[i] & 255) << ((i & 3) << 3))) & 0xFFFFFFFF
+    return iArr
+
+def _ursa_f(iArr: List[int], z: bool):
+    length = len(iArr) << 2
+    if z:
+        i = iArr[-1]
+        i2 = length - 4
+        if i >= length - 7 and i <= i2:
+            length = i
+        else:
+            return None
+    bArr = bytearray(length)
+    for i3 in range(length):
+        bArr[i3] = (iArr[i3 >> 2] >> ((i3 & 3) << 3)) & 255
+    return bytes(bArr)
+
+def _ursa_xxtea_decrypt(bArr: bytes, bArr2: bytes):
+    if len(bArr) == 0:
+        return bArr
+    g_arr = _ursa_g(bArr, False)
+    if len(bArr2) != 16:
+        bArr3 = bytearray(16)
+        if len(bArr2) < 16:
+            bArr3[:len(bArr2)] = bArr2
+        else:
+            bArr3[:16] = bArr2[:16]
+        bArr2 = bytes(bArr3)
+    g2 = _ursa_g(bArr2, False)
+    length = len(g_arr)
+    i = length - 1
+    if i >= 1:
+        i2 = (52 // length) + 6
+        i3 = g_arr[0]
+        i4 = (i2 * (-1638454863)) & 0xFFFFFFFF
+        delta = (-1638454863) & 0xFFFFFFFF
+        while i4 != 0:
+            i5 = (i4 >> 2) & 3
+            i6 = i3
+            i7 = i
+            while i7 > 0:
+                i6 = (g_arr[i7] - _ursa_a(i4, i6, g_arr[i7 - 1], i7, i5, g2)) & 0xFFFFFFFF
+                g_arr[i7] = i6
+                i7 -= 1
+            i3 = (g_arr[0] - _ursa_a(i4, i6, g_arr[i], i7, i5, g2)) & 0xFFFFFFFF
+            g_arr[0] = i3
+            i4 = (i4 - delta) & 0xFFFFFFFF
+    return _ursa_f(g_arr, True)
+
+def decrypt_ursa_field(hex_str: str) -> str:
+    if not hex_str or not isinstance(hex_str, str) or hex_str == "Pulled":
+        return hex_str
+    try:
+        raw = bytes.fromhex(hex_str.strip())
+        out = bytearray(len(raw))
+        for i in range(len(raw)):
+            out[i] = raw[i] ^ URSA_INNER_KEY[i % len(URSA_INNER_KEY)]
+        return out.decode("utf-8", errors="replace")
+    except Exception:
+        return hex_str
+
+def decrypt_ursa_live() -> Dict[str, Any]:
+    global URSA_CACHED_DATA, URSA_CACHE_TIMESTAMP
+    now = time.time()
+    if URSA_CACHED_DATA and (now - URSA_CACHE_TIMESTAMP < URSA_CACHE_TTL):
+        return URSA_CACHED_DATA
+
+    resp = requests.get(URSA_API_URL, timeout=15)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Server returned status {resp.status_code}")
+
+    cipher_bytes = base64.b64decode(resp.text.strip())
+    raw_decrypted = _ursa_xxtea_decrypt(cipher_bytes, URSA_OUTER_KEY)
+    if not raw_decrypted:
+        raise ValueError("Failed to decrypt Ursa Net PRO configuration.")
+
+    config = json.loads(raw_decrypted.decode("utf-8", errors="replace"))
+
+    for p in config.get("Payloads", []):
+        host = p.get("host")
+        if host and host != "Pulled":
+            parts = host.split(";")
+            dec_hosts = [decrypt_ursa_field(h) for h in parts if h]
+            p["decrypted_host"] = "; ".join(dec_hosts)
+        else:
+            p["decrypted_host"] = host
+
+        payload = p.get("payload")
+        if payload:
+            p["decrypted_payload"] = decrypt_ursa_field(payload)
+        else:
+            p["decrypted_payload"] = ""
+
+        sausage = p.get("sausage")
+        if sausage:
+            p["decrypted_sausage"] = decrypt_ursa_field(sausage)
+        else:
+            p["decrypted_sausage"] = ""
+
+    URSA_CACHED_DATA = config
+    URSA_CACHE_TIMESTAMP = now
+    return config
+
+
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
     if not BOT_TOKEN:
@@ -374,6 +500,7 @@ def start_bot():
             markup.add(
                 InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
                 InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
+                InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
                 InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
             )
             bot.edit_message_text(
@@ -487,6 +614,60 @@ def start_bot():
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>TeriX Decryption Failed!</b>\nError: <code>{e}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
+
+        elif call.data == "dec_ursanet":
+            bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting Ursa Net PRO Config...")
+            
+            status_msg = bot.send_message(
+                chat_id, 
+                "⏳ <b>Ursa Net PRO লাইভ ডাটা ডিক্রিপ্ট করা হচ্ছে...</b>\nঅনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+            )
+
+            try:
+                config = decrypt_ursa_live()
+                formatted_json = json.dumps(config, indent=4, ensure_ascii=False)
+                txt_bytes = io.BytesIO(formatted_json.encode("utf-8"))
+                txt_bytes.name = "Ursa_Net_PRO_Decrypted.json"
+
+                version = config.get("Version", "N/A")
+                changelogs = config.get("Changelogs", "N/A").split("\n")[0]
+                payloads = config.get("Payloads", [])
+                servers = config.get("Free_servers", [])
+
+                sample_lines = []
+                for p in payloads[:5]:
+                    name = p.get("friendly_name", "Unknown")
+                    d_host = p.get("decrypted_host", "")
+                    if len(d_host) > 40:
+                        d_host = d_host[:37] + "..."
+                    sample_lines.append(f"• <b>{name}</b>\n  ➔ <code>{d_host or 'Direct'}</code>")
+                payload_preview = "\n".join(sample_lines)
+
+                caption = (
+                    "✅ <b>Ursa Net PRO 100% Decrypted Successfully!</b>\n\n"
+                    f"📦 <b>Config Version:</b> <code>{version}</code>\n"
+                    f"📝 <b>Changelog:</b> <code>{changelogs}</code>\n"
+                    f"📡 <b>Total Tweaks/Payloads:</b> <code>{len(payloads)}</code>\n"
+                    f"🌐 <b>Free Servers:</b> <code>{len(servers)}</code>\n\n"
+                    "<b>🚀 Tweaks Preview:</b>\n"
+                    f"{payload_preview}\n\n"
+                    "📁 <i>সম্পূর্ণ আনপ্যাকড এবং ডিক্রিপ্ট করা JSON ফাইল সংযুক্ত করা হয়েছে।</i>\n\n"
+                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                )
+
+                bot.send_document(
+                    chat_id,
+                    txt_bytes,
+                    caption=caption
+                )
+                bot.delete_message(chat_id, status_msg.message_id)
+
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>Ursa Net PRO Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
