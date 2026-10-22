@@ -286,55 +286,7 @@ def decrypt_terix_live() -> Dict[str, Any]:
 
     proxies = parsed_yaml.get("proxies", [])
 
-    # Format Human-readable Text output
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
-    lines = [
-        "=============================================================================",
-        "  TERIX VPN DECRYPTED CONFIGURATION (100% LIVE)",
-        "  By         : @Foridul_002 🇧🇩",
-        "  Bot        : @decryptvpnappbot",
-        f"  Date & Time: {now_str}",
-        "=============================================================================",
-        "",
-        "[+] ACCOUNT & SUBSCRIPTION:",
-        f"  • Username    : {TERIX_USER}",
-        f"  • Plan        : {plan.title()} ({status.title()})",
-        f"  • User ID     : {user_id}",
-        f"  • Device ID   : {device_id}",
-        f"  • Total Proxies: {len(proxies)}",
-        "",
-        "=============================================================================",
-        "  EXTRACTED PROXY SERVERS LIST",
-        "=============================================================================",
-    ]
-
-    for idx, p in enumerate(proxies, 1):
-        name = p.get("name", f"Server {idx}")
-        ptype = p.get("type", "unknown")
-        server = p.get("server", "")
-        port = p.get("port", "")
-        u = p.get("username", "")
-        pwd = p.get("password", "")
-        udp = p.get("udp", True)
-
-        lines.append(f"{idx}. {name}")
-        lines.append(f"   • Type    : {ptype.upper()}")
-        lines.append(f"   • Server  : {server}")
-        lines.append(f"   • Port    : {port}")
-        if u or pwd:
-            lines.append(f"   • Username: {u}")
-            lines.append(f"   • Password: {pwd}")
-        lines.append(f"   • UDP     : {udp}")
-        lines.append("")
-
-    lines.extend([
-        "=============================================================================",
-        "  FULL CLASH / FLCLASH / SING-BOX RAW YAML CONFIG",
-        "=============================================================================",
-        yaml_raw
-    ])
-
-    formatted_txt = "\n".join(lines)
+    formatted_txt = f"# By: @Foridul_002 🇧🇩\n\n{yaml_raw}"
     result = {
         "txt_content": formatted_txt,
         "total_proxies": len(proxies),
@@ -833,118 +785,20 @@ def decrypt_vipsniper_pro(raw_b64: str = None) -> Dict[str, Any]:
                 n_dec[k] = v
         decrypted_networks.append(n_dec)
 
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
-
-    # Format beautiful text report
-    lines = [
-        "=============================================================================",
-        "  VIP SNIPER PRO DECRYPTED CONFIGURATION (100% LIVE & USABLE)",
-        "  By         : @Foridul_002 🇧🇩",
-        "  Bot        : @decryptvpnappbot",
-        f"  Date & Time: {now_str}",
-        "=============================================================================",
-        "",
-        "[+] ACCOUNT & CREDENTIALS:",
-        f"  • Config Version   : {version}",
-        f"  • Default Username : {glob_user}",
-        f"  • Default Password : {glob_pass}",
-        f"  • Total Servers    : {len(decrypted_servers)}",
-        f"  • Total Networks   : {len(decrypted_networks)}",
-        "",
-        "=============================================================================",
-        "  SERVERS LIST & FULL CONNECTION DETAILS",
-        "=============================================================================",
-    ]
-
-    for idx, s in enumerate(decrypted_servers, 1):
-        name = s.get("Name", f"Server {idx}")
-        subname = s.get("Subname", "")
-        host = s.get("ServerIPHost", "")
-        proto = s.get("Protocol", 0)
-        tcp = s.get("OpenVPNTCPPort", "")
-        ssl = s.get("OpenVPNSSLPort", "")
-        u = s.get("Username") or glob_user
-        p = s.get("Password") or glob_pass
-        cert = s.get("CustomCert", "")
-
-        if proto == 0:
-            proto_name = "OpenVPN TCP / SSL"
-        elif proto == 2:
-            proto_name = "High-Speed UDP"
-        elif proto == 3:
-            proto_name = "X-Ray / VLESS"
-        elif proto == 4:
-            proto_name = "SSL / SlowDNS"
-        else:
-            proto_name = f"Protocol {proto}"
-
-        lines.append(f"{idx}. {name} ({subname})")
-        lines.append(f"   • Protocol : {proto_name}")
-        lines.append(f"   • Host/IP  : {host}")
-        if tcp or ssl:
-            lines.append(f"   • Ports    : TCP {tcp} | SSL {ssl}")
-        if u or p:
-            lines.append(f"   • User/Pass: {u} / {p}")
-
-        # Full OpenVPN .ovpn profile & CA certificate
-        if proto == 0 and "-----BEGIN CERTIFICATE-----" in cert:
-            tcp_p = tcp if tcp and tcp != "0" else "1194"
-            ca_part = cert[cert.find("<ca>"):cert.find("</ca>") + 5] if ("<ca>" in cert and "</ca>" in cert) else f"<ca>\n{cert.strip()}\n</ca>"
-            lines.append("   • OpenVPN CA: Included & Valid")
-            lines.append("   • Ready .ovpn Config:")
-            lines.append("     --------------------------------------------------")
-            lines.append("     client")
-            lines.append("     dev tun")
-            lines.append("     persist-tun")
-            lines.append("     proto tcp")
-            lines.append(f"     remote {host} {tcp_p}")
-            lines.append("     verb 3")
-            lines.append("     ping-restart 0")
-            lines.append("     auth none")
-            lines.append("     auth-nocache")
-            lines.append("     cipher none")
-            lines.append("     setenv CLIENT_CERT 0")
-            lines.append("     auth-user-pass")
-            lines.append(f"     # Credentials: {u} / {p}")
-            for ca_line in ca_part.splitlines():
-                lines.append(f"     {ca_line}")
-            lines.append("     --------------------------------------------------")
-
-        if "V2Ray" in s and isinstance(s["V2Ray"], dict):
-            v2 = s["V2Ray"]
-            uuid = v2.get("UUID", "")
-            v2host = v2.get("V2RayHost", "")
-            path = v2.get("PATH", "/vless_juan")
-            lines.append(f"   • V2Ray UUID: {uuid}")
-            lines.append(f"   • V2Ray Host: {v2host}")
-            lines.append(f"   • V2Ray Path: {path}")
-            if uuid and v2host:
-                tag = urllib.parse.quote(f"VIP Sniper - {name}")
-                vless_link = f"vless://{uuid}@{v2host}:443?path={urllib.parse.quote(path)}&security=tls&encryption=none&host={host}&type=ws#{tag}"
-                lines.append(f"   • VLESS Link: {vless_link}")
-
-        if "SlowDNS" in s and isinstance(s["SlowDNS"], dict):
-            sd = s["SlowDNS"]
-            lines.append(f"   • NS Host  : {sd.get('NSNameServer', '')}")
-            lines.append(f"   • PubKey   : {sd.get('PubKey', '')}")
-
-        lines.append("")
-
-    lines.extend([
-        "=============================================================================",
-        "  FULL DECRYPTED DATABASE (SERVERS & NETWORKS JSON)",
-        "=============================================================================",
-        json.dumps({
-            "Version": version,
-            "Global_Username": glob_user,
-            "Global_Password": glob_pass,
-            "Notes": notes,
-            "Servers": decrypted_servers,
-            "Networks": decrypted_networks
-        }, indent=2, ensure_ascii=False)
-    ])
-
-    full_txt = "\n".join(lines)
+    full_output = {
+        "CREDITS": [
+            {
+                "Owner": "By: @Foridul_002 🇧🇩"
+            }
+        ],
+        "Version": version,
+        "Global_Username": glob_user,
+        "Global_Password": glob_pass,
+        "Notes": notes,
+        "Servers": decrypted_servers,
+        "Networks": decrypted_networks
+    }
+    full_txt = json.dumps(full_output, indent=2, ensure_ascii=False)
     result = {
         "txt_content": full_txt,
         "version": version,
@@ -1020,144 +874,17 @@ def decrypt_sensei_tunnel_live() -> Dict[str, Any]:
     servers = backup.get("servers", [])
     server_map = {s["id"]: s for s in servers if "id" in s}
 
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S 🇧🇩")
-
-    lines = [
-        "==============================================================================",
-        "  SENSEI TUNNEL 2026 - FULL LIVE API DECRYPTED CONFIGURATIONS & SERVERS",
-        "  By         : @Foridul_002 🇧🇩",
-        "  Target App : Sensei Tunnel (com.sensei.tunnel)",
-        "  Live API   : JubairZ/sensei-tunnel-configs (Official Repository)",
-        "  Decryption : AES-256-GCM (sensei:v3 Native JNI Core Broken)",
-        f"  Date & Time: {now_str}",
-        "==============================================================================",
-        "",
-        "[+] LIVE SUMMARY:",
-        f"  • Total Active Configs : {len(configs)}",
-        f"  • Backend Pool Servers : {len(servers)}",
-        f"  • App Settings Version : {settings.get('settings', {}).get('latestVersion', 'Latest')}",
-        f"  • App Locked Status    : {'LOCKED' if settings.get('settings', {}).get('appLocked') else 'ONLINE & ACTIVE'}",
-        "",
-        "==============================================================================",
-        "  PART 1: ALL LIVE APPLICATION CONFIGURATIONS (NO FILTER - 100% UNLOCKED)",
-        "==============================================================================",
-        ""
-    ]
-
-    for idx, c in enumerate(configs, 1):
-        name = c.get("name", f"Config {idx}")
-        category = c.get("category", "")
-        proto = (c.get("protocol") or "unknown").lower()
-        note = c.get("note") or c.get("tweakNote") or ""
-        vip = c.get("vip", False)
-
-        srv_id = c.get("serverId", "")
-        srv = server_map.get(srv_id, {})
-
-        addr = c.get("address") or srv.get("address", "")
-        port = c.get("port") or srv.get("port", "")
-        u = c.get("sshUser") or srv.get("sshUser", "")
-        p = c.get("sshPass") or srv.get("sshPass", "")
-        uuid = c.get("uuid") or srv.get("uuid", "")
-
-        inject_mode = c.get("injectMode") or ""
-        payload = c.get("payload") or c.get("injectPayload") or ""
-        sni = c.get("sni") or srv.get("sni") or ""
-        inj_host = c.get("injectHost") or ""
-        inj_port = c.get("injectPort") or ""
-        ovpn_cfg = c.get("ovpnConfig") or srv.get("ovpnConfig") or ""
-        trans = c.get("transport") or srv.get("transport") or "tcp"
-        sec = c.get("security") or srv.get("security") or "none"
-        ws_host = c.get("host") or srv.get("host") or ""
-        ws_path = c.get("path") or srv.get("path") or ""
-
-        lines.append(f"[{idx:02d}] 🎯 {name}")
-        lines.append(f"     • Protocol Type : {proto.upper()} ({trans.upper()} | Security: {sec.upper()})")
-        if category: lines.append(f"     • Category      : {category}")
-        if vip: lines.append("     • VIP Access    : UNLOCKED (Bypassed)")
-        if note: lines.append(f"     • Note / Tweak  : {note}")
-
-        if addr and port:
-            lines.append(f"     • Server Target : {addr}:{port}")
-
-        if u or p:
-            lines.append(f"     • Credentials   : Username: {u} | Password: {p}")
-        if uuid:
-            lines.append(f"     • Account UUID  : {uuid}")
-
-        if inject_mode and inject_mode != "none":
-            lines.append(f"     • Inject Mode   : {inject_mode}")
-        if inj_host:
-            lines.append(f"     • Inject Proxy  : {inj_host}:{inj_port}")
-        if sni:
-            lines.append(f"     • SNI (Bug Host): {sni}")
-        if payload:
-            clean_p = payload.replace("\r", "").replace("\n", " [CRLF] ")
-            lines.append(f"     • Payload       : {clean_p}")
-
-        if proto == "vless" and uuid and addr:
-            q = {}
-            if trans: q["type"] = trans
-            if sec and sec != "none": q["security"] = sec
-            if sni: q["sni"] = sni
-            if ws_host: q["host"] = ws_host
-            if ws_path and ws_path != "/": q["path"] = ws_path
-            q_str = f"?{urllib.parse.urlencode(q)}" if q else ""
-            vless_link = f"vless://{uuid}@{addr}:{port}{q_str}#{urllib.parse.quote(name)}"
-            lines.append(f"     • 1-Click Import: {vless_link}")
-        elif proto == "socks" and addr and port:
-            lines.append(f"     • 1-Click Import: tg://socks?server={addr}&port={port}")
-        elif proto == "http_proxy" and addr and port:
-            lines.append(f"     • HTTP Proxy    : http://{addr}:{port}")
-
-        if proto == "openvpn" and ovpn_cfg:
-            lines.append("     --- [Ready .ovpn Profile] ---")
-            for ov_line in ovpn_cfg.splitlines():
-                lines.append(f"     | {ov_line}")
-
-        lines.append("")
-
-    lines.extend([
-        "==============================================================================",
-        "  PART 2: BACKEND SERVER POOL (32 RAW CLUSTER SERVERS)",
-        "==============================================================================",
-        ""
-    ])
-
-    for idx, s in enumerate(servers, 1):
-        s_name = s.get("name", f"Server {idx}")
-        s_proto = (s.get("protocol") or "unknown").lower()
-        s_addr = s.get("address", "")
-        s_port = s.get("port", "")
-        s_u = s.get("sshUser", "")
-        s_p = s.get("sshPass", "")
-        s_uuid = s.get("uuid", "")
-        s_sni = s.get("sni", "")
-        s_country = s.get("country", "")
-
-        lines.append(f"[{idx:02d}] 🌐 {s_name} ({s_country})")
-        lines.append(f"     • Protocol : {s_proto.upper()}")
-        lines.append(f"     • Host/Port: {s_addr}:{s_port}")
-        if s_u or s_p:
-            lines.append(f"     • Account  : User: {s_u} | Pass: {s_p}")
-        if s_uuid:
-            lines.append(f"     • UUID     : {s_uuid}")
-        if s_sni:
-            lines.append(f"     • SNI Host : {s_sni}")
-        lines.append("")
-
-    lines.extend([
-        "==============================================================================",
-        "  PART 3: FULL RAW JSON DATABASE (CONFIGS + SERVERS + SETTINGS)",
-        "==============================================================================",
-        json.dumps({
-            "configs": configs,
-            "servers": servers,
-            "settings": settings
-        }, indent=2, ensure_ascii=False)
-    ])
-
-    full_txt = "\n".join(lines)
+    full_output = {
+        "CREDITS": [
+            {
+                "Owner": "By: @Foridul_002 🇧🇩"
+            }
+        ],
+        "configs": configs,
+        "servers": servers,
+        "settings": settings
+    }
+    full_txt = json.dumps(full_output, indent=2, ensure_ascii=False)
     result = {
         "txt_content": full_txt,
         "total_configs": len(configs),
@@ -1520,164 +1247,20 @@ def decrypt_izph_vpn_pro_live(raw_b64: str = None) -> Dict[str, Any]:
     elapsed = time.time() - t0
 
     # Categorize servers
-    ovpn_servers = [s for s in all_servers if s.get("Protocol") == 0]
-    udp_servers = [s for s in all_servers if s.get("Protocol") == 2]
-    v2ray_servers = [s for s in all_servers if s.get("Protocol") == 4]
-    slowdns_servers = [s for s in all_servers if s.get("Protocol") == 5]
-    other_servers = [s for s in all_servers if s.get("Protocol") not in (0, 2, 4, 5)]
-
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S 🇧🇩")
-    report = []
-    report.append("=============================================================================")
-    report.append("  IZPH VPN PRO - READY-TO-USE FULL SERVERS (LIVE DECRYPTED)")
-    report.append("  By               : @Foridul_002 🇧🇩")
-    report.append(f"  Target App       : IZPH VPN PRO (com.izphprov2.net)")
-    report.append(f"  Config Version   : {version}")
-    report.append(f"  Source           : {source_name}")
-    report.append(f"  Date & Time      : {now_str}")
-    report.append(f"  Total Servers    : {len(all_servers)}")
-    report.append(f"  Total Networks   : {len(all_networks)}")
-    report.append(f"  Decryption Speed : {elapsed:.3f} seconds (Zero Filter)")
-    report.append("=============================================================================\n")
-
-    # 1. OpenVPN
-    if ovpn_servers:
-        report.append("=============================================================================")
-        report.append(f"  [CATEGORY 1] 🌐 OPENVPN SERVERS (TCP / SSL) — [{len(ovpn_servers)} SERVERS]")
-        report.append("=============================================================================")
-        for idx, s in enumerate(ovpn_servers, 1):
-            name = s.get("Name", f"OpenVPN Server {idx}")
-            sub = s.get("Subname", "")
-            host = s.get("ServerIPHost", "")
-            tcp = s.get("OpenVPNTCPPort", "")
-            ssl = s.get("OpenVPNSSLPort", "")
-            u = s.get("Username") or glob_user
-            p = s.get("Password") or glob_pass
-            cert = s.get("CustomCert", "")
-            flag = s.get("flag", "")
-            has_ca = "YES (Included in CA block)" if "-----BEGIN CERTIFICATE-----" in cert else "Default App CA"
-
-            report.append(f"{idx:02d}. {name} {f'({sub})' if sub else ''}")
-            report.append(f"    • Server IP/Host : {host}")
-            report.append(f"    • Protocol       : OpenVPN TCP {tcp} | SSL {ssl}")
-            report.append(f"    • Username       : {u}")
-            report.append(f"    • Password       : {p}")
-            report.append(f"    • Country / Flag : {flag.upper() if flag else 'N/A'}")
-            report.append(f"    • CA Certificate : {has_ca}")
-            report.append("")
-
-    # 2. UDP
-    if udp_servers:
-        report.append("=============================================================================")
-        report.append(f"  [CATEGORY 2] ⚡ HIGH-SPEED UDP SERVERS — [{len(udp_servers)} SERVERS]")
-        report.append("=============================================================================")
-        for idx, s in enumerate(udp_servers, 1):
-            name = s.get("Name", f"UDP Server {idx}")
-            host = s.get("ServerIPHost", "")
-            u = s.get("Username") or glob_user
-            p = s.get("Password") or glob_pass
-            report.append(f"{idx:02d}. {name}")
-            report.append(f"    • Server Host    : {host}")
-            report.append(f"    • Protocol       : High-Speed Custom UDP")
-            report.append(f"    • Username       : {u}")
-            report.append(f"    • Password       : {p}")
-            report.append("")
-
-    # 3. V2Ray / VLESS
-    if v2ray_servers:
-        report.append("=============================================================================")
-        report.append(f"  [CATEGORY 3] 🚀 V2RAY / VLESS / VMESS SERVERS — [{len(v2ray_servers)} SERVERS]")
-        report.append("=============================================================================")
-        for idx, s in enumerate(v2ray_servers, 1):
-            name = s.get("Name", f"V2Ray Server {idx}")
-            v2 = s.get("V2Ray", {})
-            vhost = v2.get("V2RayHost") or s.get("ServerIPHost", "")
-            uuid = v2.get("UUID", "")
-            path = v2.get("PATH", "/")
-            tag = urllib.parse.quote(f"IZPH PRO - {name}")
-            link = f"vless://{uuid}@{vhost}:443?encryption=none&security=tls&type=ws&host={vhost}&path={urllib.parse.quote(path)}#{tag}"
-            report.append(f"{idx:02d}. {name}")
-            report.append(f"    • Host / SNI     : {vhost}")
-            report.append(f"    • UUID           : {uuid}")
-            report.append(f"    • WS Path        : {path}")
-            report.append(f"    • 1-Click Link   : {link}")
-            report.append("")
-
-    # 4. SlowDNS
-    if slowdns_servers:
-        report.append("=============================================================================")
-        report.append(f"  [CATEGORY 4] 📡 SLOWDNS SERVERS — [{len(slowdns_servers)} SERVERS]")
-        report.append("=============================================================================")
-        for idx, s in enumerate(slowdns_servers, 1):
-            name = s.get("Name", f"SlowDNS Server {idx}")
-            host = s.get("ServerIPHost", "")
-            sd = s.get("SlowDNS", {})
-            ns = sd.get("NSNameServer", "")
-            pub = sd.get("PubKey", "")
-            report.append(f"{idx:02d}. {name}")
-            report.append(f"    • Server Host    : {host}")
-            report.append(f"    • NS NameServer  : {ns}")
-            report.append(f"    • Public Key     : {pub}")
-            report.append("")
-
-    # 5. Other Servers
-    if other_servers:
-        report.append("=============================================================================")
-        report.append(f"  [CATEGORY 5] 🛡️ OTHER PROTOCOL SERVERS — [{len(other_servers)} SERVERS]")
-        report.append("=============================================================================")
-        for idx, s in enumerate(other_servers, 1):
-            name = s.get("Name", f"Server {idx}")
-            host = s.get("ServerIPHost", "")
-            proto = s.get("Protocol")
-            report.append(f"{idx:02d}. {name} (Protocol {proto}) | Host: {host}")
-
-    # 6. Networks / Payloads / Tweaks (Raw & Unfiltered)
-    report.append("=============================================================================")
-    report.append(f"  [CATEGORY 6] 📦 ALL NETWORKS, PAYLOADS & TWEAKS — [{len(all_networks)} TWEAKS]")
-    report.append("=============================================================================")
-    for idx, n in enumerate(all_networks, 1):
-        n_name = n.get("Name", f"Tweak {idx}")
-        sni = n.get("SNIHost", "")
-        payload = n.get("Payload", "")
-        info = n.get("Info", "")
-        tls = n.get("TLSVersion", "Default")
-        px = n.get("ProxySettings", {})
-        px_squid = px.get("Squid", "") if isinstance(px, dict) else ""
-        px_port = px.get("Port", "") if isinstance(px, dict) else ""
-
-        report.append(f"{idx:03d}. {n_name}")
-        if info:
-            report.append(f"     • Info         : {info}")
-        if sni:
-            report.append(f"     • SNI Host     : {sni}")
-        if px_squid:
-            report.append(f"     • Proxy / Port : {px_squid}:{px_port}")
-        if tls:
-            report.append(f"     • TLS Version  : {tls}")
-        if payload:
-            clean_pl = payload.replace("\n", "\\n").replace("\r", "")
-            report.append(f"     • Raw Payload  : {clean_pl}")
-        report.append("")
-
-    # Appended Full Raw JSON for complete programmatic fidelity
-    report.extend([
-        "=============================================================================",
-        "  FULL DECRYPTED CONFIG (RAW JSON)",
-        "=============================================================================",
-        json.dumps({
-            "Version": version,
-            "Global_Username": glob_user,
-            "Global_Password": glob_pass,
-            "Servers": all_servers,
-            "Networks": all_networks
-        }, indent=2, ensure_ascii=False),
-        "",
-        "=============================================================================",
-        "  END OF FILE — By: @Foridul_002 🇧🇩",
-        "============================================================================="
-    ])
-
-    full_txt = "\n".join(report)
+    full_output = {
+        "CREDITS": [
+            {
+                "Owner": "By: @Foridul_002 🇧🇩"
+            }
+        ],
+        "Version": version,
+        "Source": source_name,
+        "Global_Username": glob_user,
+        "Global_Password": glob_pass,
+        "Servers": all_servers,
+        "Networks": all_networks
+    }
+    full_txt = json.dumps(full_output, indent=2, ensure_ascii=False)
     result = {
         "txt_content": full_txt,
         "version": version,
@@ -1828,19 +1411,12 @@ def start_bot():
                 plan = res["plan"].title()
                 status = res["status"].title()
 
-                server_lines = []
-                for p in res.get("proxies", [])[:5]:
-                    server_lines.append(f"• <b>{p.get('name')}</b> ({p.get('type', '').upper()}) ➔ <code>{p.get('server')}:{p.get('port')}</code>")
-                server_preview = "\n".join(server_lines)
-
                 caption = (
                     "✅ <b>TeriX VPN 100% Decrypted Successfully!</b>\n\n"
                     f"👤 <b>Account:</b> <code>{TERIX_USER}</code>\n"
                     f"💎 <b>Plan:</b> {plan} ({status})\n"
                     f"🌐 <b>Total Proxy Servers:</b> <code>{total_proxies}</code>\n\n"
-                    "<b>🚀 Server Preview:</b>\n"
-                    f"{server_preview}\n\n"
-                    "📁 <i>Full Clash YAML and server list attached in file.</i>\n\n"
+                    "📁 <i>Full raw decrypted Clash YAML attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
@@ -1922,13 +1498,6 @@ def start_bot():
                 glob_user = res["glob_user"]
                 glob_pass = res["glob_pass"]
 
-                # Server preview (first 3)
-                server_preview = ""
-                for idx, s in enumerate(res["servers"][:3], 1):
-                    name = s.get("Name", f"Server {idx}")
-                    host = s.get("ServerIPHost", "")
-                    server_preview += f"  {idx}. {name}\n     → <code>{host}</code>\n"
-
                 caption = (
                     "✅ <b>VIP Sniper Pro 100% Fully Decrypted!</b>\n\n"
                     f"📦 <b>Version:</b> <code>{version}</code>\n"
@@ -1936,13 +1505,11 @@ def start_bot():
                     f"🔑 <b>Password:</b> <code>{glob_pass}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n\n"
-                    "<b>🚀 Server Preview:</b>\n"
-                    f"{server_preview}\n"
                     "🔓 <b>Crypto Layers Broken:</b>\n"
                     "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
                     "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
                     "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
-                    "📁 <i>Complete decrypted servers, networks, and credentials attached in file.</i>\n\n"
+                    "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
@@ -1979,25 +1546,16 @@ def start_bot():
                 total_configs = res["total_configs"]
                 total_servers = res["total_servers"]
 
-                # Server preview (first 4)
-                server_preview = ""
-                for idx, c in enumerate(res["configs"][:4], 1):
-                    name = c.get("name", f"Config {idx}")
-                    proto = (c.get("protocol") or "").upper()
-                    server_preview += f"  {idx}. {name} [<code>{proto}</code>]\n"
-
                 caption = (
                     "✅ <b>Sensei Tunnel 100% Fully Decrypted!</b>\n\n"
                     f"🌐 <b>Total Live Configs:</b> <code>{total_configs}</code>\n"
                     f"🖥️ <b>Cluster Servers:</b> <code>{total_servers}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
-                    "<b>🚀 Config Preview:</b>\n"
-                    f"{server_preview}\n"
                     "🔓 <b>Crypto Layers Broken:</b>\n"
                     "  • Header: <code>sensei:v3:</code> (Native libsenseicrypto)\n"
                     "  • Key Derivation: SHA-256(CertSHA256:sensei::cfg::v3::2026)\n"
                     "  • Cipher: AES-256-GCM (12-byte Nonce + 16-byte Tag)\n\n"
-                    "📁 <i>Complete decrypted servers, OpenVPN profiles, VLESS links, and credentials attached.</i>\n\n"
+                    "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
@@ -2037,13 +1595,6 @@ def start_bot():
                 total_servers = res["total_servers"]
                 total_networks = res["total_networks"]
 
-                # Server preview (first 4 servers)
-                server_preview = ""
-                for idx, s in enumerate(res["servers"][:4], 1):
-                    name = s.get("Name", f"Server {idx}")
-                    host = s.get("ServerIPHost", "")
-                    server_preview += f"  {idx}. {name}\n     → <code>{host}</code>\n"
-
                 caption = (
                     "✅ <b>IZPH VPN PRO 100% Fully Decrypted!</b>\n\n"
                     f"📦 <b>Version:</b> <code>{version}</code>\n"
@@ -2052,13 +1603,11 @@ def start_bot():
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
-                    "<b>🚀 Server Preview:</b>\n"
-                    f"{server_preview}\n"
                     "🔓 <b>Crypto Layers Broken:</b>\n"
                     "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
                     "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
                     "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
-                    "📁 <i>Complete decrypted servers, OpenVPN configs, UDP, VLESS links, and raw payloads attached.</i>\n\n"
+                    "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
