@@ -3,6 +3,7 @@
 =============================================================================
   TELEGRAM VPN DECRYPTOR BOT (FOR RENDER DEPLOYMENT)
   By         : @Foridul_002 🇧🇩
+  Version    : 3.7 (Admin Audit & Real-Time Reporting Engine)
 =============================================================================
 """
 
@@ -28,23 +29,17 @@ from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from argon2.low_level import hash_secret_raw, Type
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
 
 # ================= CONFIGURATION =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "5802122865"))
 
 # Flask App for Render Health Check
 app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v3.6 - Boost VPN, IPTunnel, IZPH, Sensei & VIP Sniper Ready) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v3.7 - Admin Real-time Audit & Reporting Active) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -62,14 +57,74 @@ def keep_alive_worker():
         time.sleep(480)  # Ping every 8 mins to keep free instance active
 
 
-
-
 # ================= VPN DECRYPTION ENGINES =================
-from engine_mmtunnel import decrypt_mmtunnel_live, decrypt_terix_live
+from engine_mmtunnel import decrypt_mmtunnel_live, decrypt_terix_live, TERIX_USER
 from engine_ursanet import decrypt_ursa_live, decrypt_vipsniper_pro
 from engine_sensei_izph import decrypt_sensei_tunnel_live, decrypt_izph_vpn_pro_live
 from engine_iptunnel import decrypt_iptunnel_live
 from boost_vpn import decrypt_boost_vpn_live
+
+
+# ================= ADMIN AUDIT & REPORTING SYSTEM =================
+def html_escape(text: Any) -> str:
+    if text is None:
+        return ""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, status: str, details: str = ""):
+    """
+    Sends audit report to Admin ID asynchronously without blocking user requests.
+    Tracks user details, app being decrypted, success/failure status, and BST timestamp.
+    """
+    def _worker():
+        try:
+            if not ADMIN_ID:
+                return
+
+            # Timestamp in BST (Bangladesh Standard Time, UTC+6)
+            utc_now = datetime.datetime.now(datetime.timezone.utc)
+            bst_now = utc_now + datetime.timedelta(hours=6)
+            timestamp_str = bst_now.strftime("%Y-%m-%d %I:%M:%S %p")
+
+            user_id = getattr(user, "id", "Unknown") if user else "Unknown"
+            first_name = getattr(user, "first_name", "") if user else ""
+            last_name = getattr(user, "last_name", "") if user else ""
+            full_name = f"{first_name or ''} {last_name or ''}".strip() or "Unknown User"
+            username = f"@{user.username}" if (user and getattr(user, "username", None)) else "None"
+
+            is_success = (status.upper() == "SUCCESS")
+            status_text = "✅ SUCCESS" if is_success else "❌ FAILED" if status.upper() == "FAILED" else f"ℹ️ {status}"
+
+            role_tag = "👑 [ADMIN]" if str(user_id) == str(ADMIN_ID) else "👤 [USER]"
+
+            report_msg = (
+                f"🚨 <b>ACTIVITY AUDIT REPORT</b> {role_tag}\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>Name:</b> {html_escape(full_name)}\n"
+                f"🏷️ <b>Username:</b> {html_escape(username)}\n"
+                f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
+                f"🔗 <b>Profile:</b> <a href=\"tg://user?id={user_id}\">Direct Profile Link</a>\n"
+                "────────────────────\n"
+                f"📱 <b>Target App:</b> <b>{html_escape(action_name)}</b>\n"
+                f"📊 <b>Result:</b> <b>{status_text}</b>\n"
+            )
+            if details:
+                # Limit details to 2500 chars to avoid exceeding Telegram's 4096 char limit
+                safe_details = html_escape(str(details)[:2500])
+                report_msg += f"📋 <b>Details:</b>\n<code>{safe_details}</code>\n"
+
+            report_msg += (
+                "────────────────────\n"
+                f"⏰ <b>Time (BST):</b> <code>{timestamp_str}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
+
+            bot.send_message(ADMIN_ID, report_msg, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception as e:
+            print(f"[!] Failed to deliver admin report to {ADMIN_ID}: {e}", file=sys.stderr)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
 
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
@@ -81,6 +136,7 @@ def start_bot():
 
     @bot.message_handler(commands=["start", "help"])
     def handle_start(message):
+        send_admin_report_async(bot, message.from_user, "Bot Menu (/start)", "SUCCESS", details="User accessed main menu")
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
             InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
@@ -101,6 +157,23 @@ def start_bot():
             "Select the VPN you want to decrypt from the list below:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
+
+    @bot.message_handler(commands=["admin"])
+    def handle_admin(message):
+        if str(message.from_user.id) == str(ADMIN_ID):
+            send_admin_report_async(bot, message.from_user, "Admin Panel (/admin)", "SUCCESS", details="Admin checked bot status")
+            bot.reply_to(
+                message,
+                f"👑 <b>Admin Control Panel</b>\n\n"
+                f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
+                f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
+                f"⚡ <b>Engine Version:</b> <code>v3.7</code>\n"
+                f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>\n\n"
+                f"<i>All bot usage, user decryptions, successes & failures are sent to this chat in real time!</i>"
+            )
+        else:
+            send_admin_report_async(bot, message.from_user, "Unauthorized Admin Access (/admin)", "FAILED", details=f"Unauthorized attempt by ID {message.from_user.id}")
+            bot.reply_to(message, "⛔ <b>Access Denied:</b> This command is restricted to the Bot Administrator.")
 
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callbacks(call):
@@ -180,12 +253,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Version: {version}\nServers: {servers_count}\nNetworks: {networks_count}\nNotes: {notes}"
+                send_admin_report_async(bot, call.from_user, "MM Tunnel VPN", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "MM Tunnel VPN", "FAILED", details=str(e))
 
         elif call.data == "dec_terix":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting TeriX VPN Config...")
@@ -221,12 +299,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Account: {TERIX_USER}\nPlan: {plan} ({status})\nTotal Proxies: {total_proxies}"
+                send_admin_report_async(bot, call.from_user, "TeriX VPN", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>TeriX Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "TeriX VPN", "FAILED", details=str(e))
 
         elif call.data == "dec_ursanet":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting Ursa Net PRO Config...")
@@ -264,12 +347,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Config Version: {version}\nTotal Servers: {total_servers}\nTotal Payloads: {total_payloads}"
+                send_admin_report_async(bot, call.from_user, "Ursa Net PRO", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>Ursa Net PRO Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "Ursa Net PRO", "FAILED", details=str(e))
 
         elif call.data == "dec_vipsniper":
             bot.answer_callback_query(call.id, "⏳ Decrypting VIP Sniper Pro Config...")
@@ -314,12 +402,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Version: {version}\nServers: {total_servers}\nNetworks: {total_networks}\nUser: {glob_user}"
+                send_admin_report_async(bot, call.from_user, "VIP Sniper Pro", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>VIP Sniper Pro Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "VIP Sniper Pro", "FAILED", details=str(e))
 
         elif call.data == "dec_sensei":
             bot.answer_callback_query(call.id, "⏳ Decrypting Sensei Tunnel Live Config...")
@@ -360,12 +453,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Configs: {total_configs}\nCluster Servers: {total_servers}\nCrypto: Native JNI AES-256-GCM"
+                send_admin_report_async(bot, call.from_user, "Sensei Tunnel (Live)", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>Sensei Tunnel Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "Sensei Tunnel (Live)", "FAILED", details=str(e))
 
         elif call.data == "dec_izph":
             bot.answer_callback_query(call.id, "⏳ Decrypting IZPH VPN PRO Config...")
@@ -412,12 +510,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Version: {version}\nServers: {total_servers}\nNetworks: {total_networks}\nUser: {glob_user}"
+                send_admin_report_async(bot, call.from_user, "IZPH VPN PRO (Live)", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>IZPH VPN PRO Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "IZPH VPN PRO (Live)", "FAILED", details=str(e))
 
         elif call.data == "dec_iptunnel":
             bot.answer_callback_query(call.id, "⏳ Decrypting IPTunnel Config...")
@@ -460,13 +563,17 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Version: {version}\nServers: {total_servers}\nTweaks/Payloads: {total_tweaks}"
+                send_admin_report_async(bot, call.from_user, "IPTunnel - Alpha (Live)", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>IPTunnel Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
-
+                send_admin_report_async(bot, call.from_user, "IPTunnel - Alpha (Live)", "FAILED", details=str(e))
 
         elif call.data == "dec_boostvpn":
             bot.answer_callback_query(call.id, "⏳ Decrypting Boost VPN Config...")
@@ -511,12 +618,37 @@ def start_bot():
                 )
                 bot.delete_message(chat_id, status_msg.message_id)
 
+                # Report to Admin
+                details = f"Version: {version}\nServers: {total_servers}\nHTTP Networks: {total_http}\nSSL Networks: {total_ssl}"
+                send_admin_report_async(bot, call.from_user, "Boost VPN (Live)", "SUCCESS", details=details)
+
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>Boost VPN Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
+                send_admin_report_async(bot, call.from_user, "Boost VPN (Live)", "FAILED", details=str(e))
+
+    @bot.message_handler(func=lambda m: True)
+    def handle_other_messages(message):
+        send_admin_report_async(bot, message.from_user, "Direct Text Message", "INFO", details=f"User sent: {message.text}")
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
+            InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
+            InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
+            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
+            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
+            InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
+            InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
+            InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn")
+        )
+        bot.reply_to(
+            message,
+            "🤖 <b>Please choose a VPN from the list below to decrypt:</b>",
+            reply_markup=markup
+        )
 
     print("[*] Starting Telegram Bot polling...")
     bot.infinity_polling()
