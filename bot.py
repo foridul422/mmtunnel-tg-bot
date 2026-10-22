@@ -39,7 +39,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v3.2 - VIP Sniper Pro Ready) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -890,15 +890,20 @@ def start_bot():
 
     @bot.message_handler(commands=["start", "help"])
     def handle_start(message):
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🌐 VPN List", callback_data="vpn_list"))
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
+            InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
+            InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
+            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper")
+        )
         
         user_name = message.from_user.first_name or "User"
         welcome_text = (
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
             "<i>Powered by: @Foridul_002 🇧🇩</i>\n\n"
-            "নিচের <b>'VPN List'</b> বাটনে ক্লিক করে VPN নির্বাচন করুন:"
+            "যে VPN-এর কনফিগ ডিক্রিপ্ট করতে চান নিচের তালিকা থেকে সিলেক্ট করুন:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
