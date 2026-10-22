@@ -3,7 +3,7 @@
 =============================================================================
   TELEGRAM VPN DECRYPTOR BOT (FOR RENDER DEPLOYMENT)
   By         : @Foridul_002 🇧🇩
-  Version    : 3.7 (Admin Audit & Real-Time Reporting Engine)
+  Version    : 3.8 (HTTP Custom .hc + 8 Live OTA VPN Engines + Admin Audit)
 =============================================================================
 """
 
@@ -39,7 +39,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v3.7 - Admin Real-time Audit & Reporting Active) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v3.8 - HTTP Custom .hc File Decryptor & Real-time Admin Reporting Active) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -63,6 +63,7 @@ from engine_ursanet import decrypt_ursa_live, decrypt_vipsniper_pro
 from engine_sensei_izph import decrypt_sensei_tunnel_live, decrypt_izph_vpn_pro_live
 from engine_iptunnel import decrypt_iptunnel_live
 from boost_vpn import decrypt_boost_vpn_live
+from engine_httpcustom import decrypt_hc_file
 
 
 # ================= ADMIN AUDIT & REPORTING SYSTEM =================
@@ -109,7 +110,6 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
                 f"📊 <b>Result:</b> <b>{status_text}</b>\n"
             )
             if details:
-                # Limit details to 2500 chars to avoid exceeding Telegram's 4096 char limit
                 safe_details = html_escape(str(details)[:2500])
                 report_msg += f"📋 <b>Details:</b>\n<code>{safe_details}</code>\n"
 
@@ -126,6 +126,22 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def get_vpn_markup() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        InlineKeyboardButton("📁 HTTP Custom (.hc File Decryptor)", callback_data="dec_httpcustom"),
+        InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
+        InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
+        InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
+        InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
+        InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
+        InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
+        InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
+        InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn")
+    )
+    return markup
+
+
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
     if not BOT_TOKEN:
@@ -137,24 +153,13 @@ def start_bot():
     @bot.message_handler(commands=["start", "help"])
     def handle_start(message):
         send_admin_report_async(bot, message.from_user, "Bot Menu (/start)", "SUCCESS", details="User accessed main menu")
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
-            InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
-            InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
-            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
-            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
-            InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
-            InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
-            InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn")
-        )
-        
+        markup = get_vpn_markup()
         user_name = message.from_user.first_name or "User"
         welcome_text = (
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
             "<i>By: @Foridul_002 🇧🇩</i>\n\n"
-            "Select the VPN you want to decrypt from the list below:"
+            "Select an online VPN to decrypt or send any <b>.hc (HTTP Custom)</b> file:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
@@ -167,7 +172,7 @@ def start_bot():
                 f"👑 <b>Admin Control Panel</b>\n\n"
                 f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
                 f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
-                f"⚡ <b>Engine Version:</b> <code>v3.7</code>\n"
+                f"⚡ <b>Engine Version:</b> <code>v3.8 (HTTP Custom .hc Active)</code>\n"
                 f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>\n\n"
                 f"<i>All bot usage, user decryptions, successes & failures are sent to this chat in real time!</i>"
             )
@@ -181,20 +186,10 @@ def start_bot():
         msg_id = call.message.message_id
 
         if call.data == "vpn_list":
-            markup = InlineKeyboardMarkup(row_width=1)
-            markup.add(
-                InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
-                InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
-                InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
-                InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
-                InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
-                InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
-                InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
-                InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn"),
-                InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
-            )
+            markup = get_vpn_markup()
+            markup.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main"))
             bot.edit_message_text(
-                "📋 <b>Available VPN List:</b>\n\nSelect the VPN you want to decrypt:",
+                "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc</b> file:",
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=markup
@@ -210,20 +205,30 @@ def start_bot():
                 reply_markup=markup
             )
 
+        elif call.data == "dec_httpcustom":
+            bot.answer_callback_query(call.id, "📁 HTTP Custom (.hc) File Decryptor")
+            info_text = (
+                "📁 <b>HTTP Custom (.hc) Config Decryptor</b>\n\n"
+                "ℹ️ <i>HTTP Custom does not have online built-in servers. It uses custom encrypted <code>.hc</code> configuration files.</i>\n\n"
+                "📤 <b>How to Decrypt:</b>\n"
+                "Simply <b>send or forward</b> any <code>.hc</code> file directly to this chat!\n\n"
+                "⚡ <b>The bot will automatically:</b>\n"
+                "  • Break XChaCha20-Poly1305 + HKDF native crypto\n"
+                "  • Unpack binary HPC1 profiles & containers\n"
+                "  • Extract Host, Port, V2Ray UUID, SSH Passwords & SNI\n"
+                "  • Extract hidden HTTP Payloads & WS Headers\n"
+                "  • Deliver a clean, decrypted text file instantly!\n\n"
+                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            )
+            bot.send_message(chat_id, info_text)
+
         elif call.data == "dec_mmtunnel":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting MM Tunnel Config...")
-            
-            # Send loading message
-            status_msg = bot.send_message(
-                chat_id, 
-                "⏳ <b>Decrypting MM Tunnel live data...</b>\nPlease wait a few seconds."
-            )
+            status_msg = bot.send_message(chat_id, "⏳ <b>Decrypting MM Tunnel live data...</b>\nPlease wait a few seconds.")
 
             try:
                 decrypted_data = decrypt_mmtunnel_live()
                 formatted_txt = json.dumps(decrypted_data, indent=4, ensure_ascii=False)
-
-                # Convert text to in-memory file for sending
                 txt_bytes = io.BytesIO(formatted_txt.encode("utf-8"))
                 txt_bytes.name = "MM_Tunnel_Decrypted.txt"
 
@@ -245,15 +250,9 @@ def start_bot():
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                # Send .txt file document
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Version: {version}\nServers: {servers_count}\nNetworks: {networks_count}\nNotes: {notes}"
                 send_admin_report_async(bot, call.from_user, "MM Tunnel VPN", "SUCCESS", details=details)
 
@@ -267,12 +266,7 @@ def start_bot():
 
         elif call.data == "dec_terix":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting TeriX VPN Config...")
-            
-            # Send loading message
-            status_msg = bot.send_message(
-                chat_id, 
-                "⏳ <b>Fetching & decrypting TeriX VPN live data...</b>\nPlease wait a few seconds."
-            )
+            status_msg = bot.send_message(chat_id, "⏳ <b>Fetching & decrypting TeriX VPN live data...</b>\nPlease wait a few seconds.")
 
             try:
                 res = decrypt_terix_live()
@@ -292,14 +286,9 @@ def start_bot():
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Account: {TERIX_USER}\nPlan: {plan} ({status})\nTotal Proxies: {total_proxies}"
                 send_admin_report_async(bot, call.from_user, "TeriX VPN", "SUCCESS", details=details)
 
@@ -313,11 +302,7 @@ def start_bot():
 
         elif call.data == "dec_ursanet":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting Ursa Net PRO Config...")
-            
-            status_msg = bot.send_message(
-                chat_id, 
-                "⏳ <b>Decrypting Ursa Net PRO live data...</b>\nPlease wait a few seconds."
-            )
+            status_msg = bot.send_message(chat_id, "⏳ <b>Decrypting Ursa Net PRO live data...</b>\nPlease wait a few seconds.")
 
             try:
                 res = decrypt_ursa_live()
@@ -326,7 +311,6 @@ def start_bot():
                 total_servers = res["total_servers"]
                 total_payloads = res["total_payloads"]
 
-                # Single TXT file containing complete decrypted raw data
                 txt_bytes = io.BytesIO(raw_txt.encode("utf-8"))
                 txt_bytes.name = "Ursa_Net_PRO_Decrypted.txt"
 
@@ -335,19 +319,13 @@ def start_bot():
                     f"📦 <b>Config Version:</b> <code>{version}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Payloads:</b> <code>{total_payloads}</code>\n\n"
-                    "📁 <i>All decrypted data (server hosts, payloads, tweaks) attached in TXT file without filtering.</i>\n\n"
+                    "📁 <i>All decrypted data attached in TXT file without filtering.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                # Send ONLY ONE txt file
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Config Version: {version}\nTotal Servers: {total_servers}\nTotal Payloads: {total_payloads}"
                 send_admin_report_async(bot, call.from_user, "Ursa Net PRO", "SUCCESS", details=details)
 
@@ -361,7 +339,6 @@ def start_bot():
 
         elif call.data == "dec_vipsniper":
             bot.answer_callback_query(call.id, "⏳ Decrypting VIP Sniper Pro Config...")
-
             status_msg = bot.send_message(
                 chat_id,
                 "⏳ <b>Decrypting VIP Sniper Pro...</b>\n"
@@ -387,22 +364,13 @@ def start_bot():
                     f"🔑 <b>Password:</b> <code>{glob_pass}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n\n"
-                    "🔓 <b>Crypto Layers Broken:</b>\n"
-                    "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
-                    "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
-                    "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
                     "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Version: {version}\nServers: {total_servers}\nNetworks: {total_networks}\nUser: {glob_user}"
                 send_admin_report_async(bot, call.from_user, "VIP Sniper Pro", "SUCCESS", details=details)
 
@@ -416,7 +384,6 @@ def start_bot():
 
         elif call.data == "dec_sensei":
             bot.answer_callback_query(call.id, "⏳ Decrypting Sensei Tunnel Live Config...")
-
             status_msg = bot.send_message(
                 chat_id,
                 "⏳ <b>Fetching & Decrypting Sensei Tunnel...</b>\n"
@@ -438,22 +405,13 @@ def start_bot():
                     f"🌐 <b>Total Live Configs:</b> <code>{total_configs}</code>\n"
                     f"🖥️ <b>Cluster Servers:</b> <code>{total_servers}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
-                    "🔓 <b>Crypto Layers Broken:</b>\n"
-                    "  • Header: <code>sensei:v3:</code> (Native libsenseicrypto)\n"
-                    "  • Key Derivation: SHA-256(CertSHA256:sensei::cfg::v3::2026)\n"
-                    "  • Cipher: AES-256-GCM (12-byte Nonce + 16-byte Tag)\n\n"
                     "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Configs: {total_configs}\nCluster Servers: {total_servers}\nCrypto: Native JNI AES-256-GCM"
                 send_admin_report_async(bot, call.from_user, "Sensei Tunnel (Live)", "SUCCESS", details=details)
 
@@ -467,7 +425,6 @@ def start_bot():
 
         elif call.data == "dec_izph":
             bot.answer_callback_query(call.id, "⏳ Decrypting IZPH VPN PRO Config...")
-
             status_msg = bot.send_message(
                 chat_id,
                 "⏳ <b>Fetching & Decrypting IZPH VPN PRO...</b>\n"
@@ -495,22 +452,13 @@ def start_bot():
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
-                    "🔓 <b>Crypto Layers Broken:</b>\n"
-                    "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
-                    "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
-                    "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
                     "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Version: {version}\nServers: {total_servers}\nNetworks: {total_networks}\nUser: {glob_user}"
                 send_admin_report_async(bot, call.from_user, "IZPH VPN PRO (Live)", "SUCCESS", details=details)
 
@@ -524,7 +472,6 @@ def start_bot():
 
         elif call.data == "dec_iptunnel":
             bot.answer_callback_query(call.id, "⏳ Decrypting IPTunnel Config...")
-
             status_msg = bot.send_message(
                 chat_id,
                 "⏳ <b>Fetching & Decrypting IPTunnel - Alpha...</b>\n"
@@ -548,22 +495,13 @@ def start_bot():
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Tweaks / Payloads:</b> <code>{total_tweaks}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
-                    "🔓 <b>Crypto Layers Broken:</b>\n"
-                    "  • Obfuscation: Java LCG Random XOR (od2 / nd2)\n"
-                    "  • Sign Auth: HMAC-SHA256 Secret Signature\n"
-                    "  • Cipher: Custom Modified XXTEA (δ=0x9a7479b4)\n\n"
                     "📁 <i>Complete decrypted raw database attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Version: {version}\nServers: {total_servers}\nTweaks/Payloads: {total_tweaks}"
                 send_admin_report_async(bot, call.from_user, "IPTunnel - Alpha (Live)", "SUCCESS", details=details)
 
@@ -577,7 +515,6 @@ def start_bot():
 
         elif call.data == "dec_boostvpn":
             bot.answer_callback_query(call.id, "⏳ Decrypting Boost VPN Config...")
-
             status_msg = bot.send_message(
                 chat_id,
                 "⏳ <b>Fetching & Decrypting Boost VPN...</b>\n"
@@ -604,21 +541,12 @@ def start_bot():
                     f"📡 <b>HTTP Networks:</b> <code>{total_http}</code>\n"
                     f"🔒 <b>SSL Networks:</b> <code>{total_ssl}</code>\n"
                     "⚡ <b>Filter:</b> <code>NONE (100% Raw Decrypted Data)</code>\n\n"
-                    "🔓 <b>Crypto Layers Broken:</b>\n"
-                    "• Outer XxTea (Delta: <code>772515655</code>) & Double Shift (<code>4669</code>)\n"
-                    "• Inner Field Recursive Decryption (IPs, Payloads, SNIs, Credentials)\n"
-                    "• Live OTA GitHub Endpoint (<code>doneeone7/first</code>)\n\n"
                     "👑 <b>By: @Foridul_002 🇧🇩</b>"
                 )
 
-                bot.send_document(
-                    chat_id,
-                    txt_bytes,
-                    caption=caption
-                )
+                bot.send_document(chat_id, txt_bytes, caption=caption)
                 bot.delete_message(chat_id, status_msg.message_id)
 
-                # Report to Admin
                 details = f"Version: {version}\nServers: {total_servers}\nHTTP Networks: {total_http}\nSSL Networks: {total_ssl}"
                 send_admin_report_async(bot, call.from_user, "Boost VPN (Live)", "SUCCESS", details=details)
 
@@ -630,23 +558,82 @@ def start_bot():
                 )
                 send_admin_report_async(bot, call.from_user, "Boost VPN (Live)", "FAILED", details=str(e))
 
+    # ================= INCOMING DOCUMENT / FILE HANDLER =================
+    @bot.message_handler(content_types=["document"])
+    def handle_incoming_document(message):
+        chat_id = message.chat.id
+        doc = message.document
+        file_name = doc.file_name or "config.hc"
+
+        if not file_name.lower().endswith(".hc"):
+            bot.reply_to(
+                message,
+                "⚠️ <b>Unsupported File!</b>\n\n"
+                "Please upload or forward a valid <b>.hc</b> (HTTP Custom) configuration file."
+            )
+            return
+
+        status_msg = bot.reply_to(
+            message,
+            f"⏳ <b>Analyzing & Decrypting <code>{html_escape(file_name)}</code>...</b>\n"
+            "🔐 Breaking XChaCha20-Poly1305 + HKDF native crypto...\n"
+            "Please wait a few seconds."
+        )
+
+        try:
+            file_info = bot.get_file(doc.file_id)
+            downloaded_bytes = bot.download_file(file_info.file_path)
+
+            res = decrypt_hc_file(downloaded_bytes)
+
+            txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
+            out_filename = file_name.rsplit(".", 1)[0] + "_Decrypted.txt"
+            txt_bytes.name = out_filename
+
+            creator = res.get("creator", "Unknown")
+            name = res.get("name", "Config")
+            protocol = res.get("protocol", "HTTP Custom")
+            version = res.get("version", "v10")
+
+            caption = (
+                "✅ <b>HTTP Custom (.hc) 100% Fully Decrypted!</b>\n\n"
+                f"📦 <b>Config Name:</b> <code>{html_escape(name)}</code>\n"
+                f"👤 <b>Creator:</b> <code>{html_escape(creator)}</code>\n"
+                f"🌐 <b>Protocol:</b> <code>{html_escape(protocol)}</code>\n"
+                f"⚡ <b>Version:</b> <code>{html_escape(version)}</code>\n\n"
+                "📁 <i>Complete decrypted raw database and server config attached in TXT file.</i>\n\n"
+                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            )
+
+            bot.send_document(chat_id, txt_bytes, caption=caption)
+            bot.delete_message(chat_id, status_msg.message_id)
+
+            # Audit report to Admin
+            details = (
+                f"File: {file_name}\n"
+                f"Creator: {creator}\n"
+                f"Protocol: {protocol}\n"
+                f"Server: {res.get('server_host', 'N/A')}:{res.get('server_port', 0)}\n"
+                f"Size: {len(downloaded_bytes)} bytes"
+            )
+            send_admin_report_async(bot, message.from_user, "HTTP Custom (.hc Upload)", "SUCCESS", details=details)
+
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ <b>HTTP Custom Decryption Failed!</b>\nError: <code>{html_escape(str(e))}</code>",
+                chat_id=chat_id,
+                message_id=status_msg.message_id
+            )
+            send_admin_report_async(bot, message.from_user, "HTTP Custom (.hc Upload)", "FAILED", details=str(e))
+
+    # ================= GENERAL TEXT MESSAGES =================
     @bot.message_handler(func=lambda m: True)
     def handle_other_messages(message):
         send_admin_report_async(bot, message.from_user, "Direct Text Message", "INFO", details=f"User sent: {message.text}")
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
-            InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
-            InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
-            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
-            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
-            InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
-            InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
-            InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn")
-        )
+        markup = get_vpn_markup()
         bot.reply_to(
             message,
-            "🤖 <b>Please choose a VPN from the list below to decrypt:</b>",
+            "🤖 <b>Please choose an option from the menu or send an .hc file:</b>",
             reply_markup=markup
         )
 
