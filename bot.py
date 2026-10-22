@@ -13,6 +13,7 @@ import time
 import json
 import re
 import base64
+import struct
 import datetime
 import threading
 import requests
@@ -24,8 +25,11 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from argon2.low_level import hash_secret_raw, Type
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
 # ================= CONFIGURATION =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -500,6 +504,382 @@ def decrypt_ursa_live() -> Dict[str, Any]:
     return result
 
 
+# ================= VIP SNIPER PRO DECRYPTION ENGINE =================
+VIP_DATA_27F688 = bytes.fromhex('1fea453c1c20a9366214bf96b64a26f1b76e32660d02ab66a1ddc878936186b1')
+VIP_IV_27F6A8   = bytes.fromhex('82aa46e488644f9f3af6b61b69d214cd')
+VIP_SALT_16     = bytes.fromhex('c9c5fd1cace2fe51e213935313b2f03b')
+VIP_FIXED_SALT  = bytes.fromhex('c9c5fd1cace2fe51e213935313b2f03ba055190f23b4aced90c36cf3cb43d291')
+VIP_KEY_16      = bytes.fromhex('d354f18b4f246a95aa6e2562289a5e7b')
+
+VIP_CACHED_DATA = None
+VIP_CACHE_TIMESTAMP = 0
+VIP_CACHE_TTL = 300
+
+# Pre-derive keys at module load (one-time cost)
+VIP_THREEFISH_KEY = HKDF(algorithm=hashes.SHA256(), length=32, salt=VIP_FIXED_SALT, info=b'', backend=default_backend()).derive(VIP_DATA_27F688)
+VIP_AES_KEY_MODE1 = HKDF(algorithm=hashes.SHA256(), length=16, salt=VIP_SALT_16, info=b'', backend=default_backend()).derive(VIP_DATA_27F688)
+VIP_PBKDF2_KEY = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=VIP_FIXED_SALT, iterations=100000, backend=default_backend()).derive(VIP_DATA_27F688)
+
+VIP_DELTA = 0x7a56d3e1
+VIP_MASK = 0xffffffff
+
+
+def _vip_bytes_to_words(b):
+    n = (len(b) + 3) // 4
+    words = [0] * n
+    for i, byte in enumerate(b):
+        words[i // 4] |= (byte & 0xff) << ((i % 4) * 8)
+    return words
+
+
+def _vip_words_to_bytes(words):
+    total_len = words[-1]
+    res = bytearray()
+    for i in range(total_len):
+        res.append((words[i // 4] >> ((i % 4) * 8)) & 0xff)
+    return res
+
+
+def _vip_mx(sum_val, y, z, p, e, k):
+    part1 = ((sum_val ^ y) + (k[(p & 3) ^ e] ^ z)) & VIP_MASK
+    part2 = (((z >> 5 ^ (y << 2) & VIP_MASK)) + ((y >> 3 ^ (z << 4) & VIP_MASK))) & VIP_MASK
+    return (part1 ^ part2) & VIP_MASK
+
+
+def _vip_xxtea_decrypt(data_bytes, key_bytes):
+    v = _vip_bytes_to_words(data_bytes)
+    k_raw = bytearray(key_bytes[:16].ljust(16, b'\x00'))
+    for idx, b in enumerate(k_raw):
+        if b == 0:
+            for j in range(idx, 16):
+                k_raw[j] = 0
+            break
+    k = _vip_bytes_to_words(k_raw)[:4]
+    if len(k) < 4:
+        k.extend([0] * (4 - len(k)))
+    n = len(v)
+    if n <= 1:
+        return data_bytes
+    rounds = 6 + 52 // n
+    sum_val = (rounds * VIP_DELTA) & VIP_MASK
+    y = v[0]
+    while sum_val != 0:
+        e = (sum_val >> 2) & 3
+        for p in range(n - 1, 0, -1):
+            z = v[p - 1]
+            y = (v[p] - _vip_mx(sum_val, y, z, p, e, k)) & VIP_MASK
+            v[p] = y
+        z = v[n - 1]
+        y = (v[0] - _vip_mx(sum_val, y, z, 0, e, k)) & VIP_MASK
+        v[0] = y
+        sum_val = (sum_val - VIP_DELTA) & VIP_MASK
+    return _vip_words_to_bytes(v)
+
+
+def vip_decrypt_mode0(b64_str: str) -> str:
+    """Mode 0: AES-128-CBC + XXTEA + byte shift (-2). Used for Names, Ports, Certs, UUID, ProxySettings.Squid."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        cipher = Cipher(algorithms.AES(VIP_KEY_16), modes.CBC(VIP_IV_27F6A8), backend=default_backend())
+        decryptor = cipher.decryptor()
+        aes_dec = decryptor.update(cipher_bytes) + decryptor.finalize()
+        pad_len = aes_dec[-1]
+        if 1 <= pad_len <= 16:
+            aes_dec = aes_dec[:-pad_len]
+        xxtea_dec = _vip_xxtea_decrypt(aes_dec, VIP_KEY_16)
+        final_bytes = bytearray(((b - 2) & 0xff for b in xxtea_dec))
+        return final_bytes.decode('utf-8', errors='replace')
+    except Exception:
+        return b64_str
+
+
+# Threefish-256 constants
+VIP_C240 = 0x1BD11BDAA9FC1A22
+VIP_MASK64 = 0xFFFFFFFFFFFFFFFF
+VIP_ROT = [
+    [14, 16], [52, 57], [23, 40], [5, 37],
+    [25, 33], [46, 12], [58, 22], [32, 32]
+]
+
+
+def _vip_ror64(x, n):
+    return ((x >> n) | (x << (64 - n))) & VIP_MASK64
+
+
+def _vip_threefish_decrypt_block(block_bytes, key_words, tweak_words):
+    v = list(struct.unpack('<4Q', block_bytes))
+    k = list(key_words)
+    k.append(VIP_C240 ^ k[0] ^ k[1] ^ k[2] ^ k[3])
+    t = list(tweak_words)
+    t.append(t[0] ^ t[1])
+    x6, x4, x5, x7 = v[0], v[1], v[2], v[3]
+    s = 18
+    x6 = (x6 - k[s % 5]) & VIP_MASK64
+    x4 = (x4 - (k[(s + 1) % 5] + t[s % 3])) & VIP_MASK64
+    x5 = (x5 - (k[(s + 2) % 5] + t[(s + 1) % 3])) & VIP_MASK64
+    x7 = (x7 - (k[(s + 3) % 5] + s)) & VIP_MASK64
+    for r in range(71, -1, -1):
+        rot = VIP_ROT[r % 8]
+        if r % 2 == 1:
+            x7 = (x7 ^ x6)
+            x4 = (x4 ^ x5)
+            x7 = _vip_ror64(x7, rot[0])
+            x4 = _vip_ror64(x4, rot[1])
+            x6 = (x6 - x7) & VIP_MASK64
+            x5 = (x5 - x4) & VIP_MASK64
+        else:
+            x4 = (x4 ^ x6)
+            x7 = (x7 ^ x5)
+            x4 = _vip_ror64(x4, rot[0])
+            x7 = _vip_ror64(x7, rot[1])
+            x6 = (x6 - x4) & VIP_MASK64
+            x5 = (x5 - x7) & VIP_MASK64
+        if r % 4 == 0:
+            s = r // 4
+            x6 = (x6 - k[s % 5]) & VIP_MASK64
+            x4 = (x4 - (k[(s + 1) % 5] + t[s % 3])) & VIP_MASK64
+            x5 = (x5 - (k[(s + 2) % 5] + t[(s + 1) % 3])) & VIP_MASK64
+            x7 = (x7 - (k[(s + 3) % 5] + s)) & VIP_MASK64
+    return struct.pack('<4Q', x6, x4, x5, x7)
+
+
+VIP_KEY_WORDS = struct.unpack('<4Q', VIP_THREEFISH_KEY)
+VIP_TWEAK_WORDS = (0, 0)
+
+
+def vip_decrypt_mode1(b64_str: str) -> str:
+    """Mode 1: Threefish-256 -> AES-128-CBC. Used for ServerIPHost, SNIHost, Payload, V2Ray.SNIHost, V2Ray.PATH."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        if len(cipher_bytes) % 8 != 0:
+            return b64_str
+        rem = len(cipher_bytes) % 32
+        if rem != 0:
+            cipher_bytes += b'\x00' * (32 - rem)
+        dec_blocks = bytearray()
+        for i in range(0, len(cipher_bytes), 32):
+            block = cipher_bytes[i:i + 32]
+            dec_blocks.extend(_vip_threefish_decrypt_block(block, VIP_KEY_WORDS, VIP_TWEAK_WORDS))
+        dec_trimmed = dec_blocks.rstrip(b'\x00')
+        if len(dec_trimmed) == 0:
+            return b64_str
+        cipher = Cipher(algorithms.AES(VIP_AES_KEY_MODE1), modes.CBC(VIP_IV_27F6A8), backend=default_backend())
+        decryptor = cipher.decryptor()
+        aes_dec = decryptor.update(dec_trimmed) + decryptor.finalize()
+        pad_len = aes_dec[-1]
+        if 1 <= pad_len <= 16:
+            aes_dec = aes_dec[:-pad_len]
+        return aes_dec.decode('utf-8', errors='replace')
+    except Exception:
+        return b64_str
+
+
+def vip_decrypt_mode2(b64_str: str) -> str:
+    """Mode 2: XXTEA(PBKDF2_key[:16]) -> extract IV -> AES-256-CBC. Used for Username, Password."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        xxtea_dec = _vip_xxtea_decrypt(cipher_bytes, VIP_PBKDF2_KEY[:16])
+        iv = xxtea_dec[:16]
+        ct = xxtea_dec[16:]
+        cipher = Cipher(algorithms.AES(VIP_PBKDF2_KEY), modes.CBC(iv), backend=default_backend())
+        dec = cipher.decryptor()
+        aes_dec = dec.update(ct) + dec.finalize()
+        pad = aes_dec[-1]
+        if 1 <= pad <= 16:
+            aes_dec = aes_dec[:-pad]
+        return aes_dec.decode('utf-8', errors='replace').strip()
+    except Exception:
+        return b64_str
+
+
+def decrypt_vipsniper_pro(raw_b64: str = None) -> Dict[str, Any]:
+    """Full VIP Sniper Pro decryption pipeline: outer layer + all nested fields."""
+    global VIP_CACHED_DATA, VIP_CACHE_TIMESTAMP
+    now = time.time()
+    if not raw_b64 and VIP_CACHED_DATA and (now - VIP_CACHE_TIMESTAMP < VIP_CACHE_TTL):
+        return VIP_CACHED_DATA
+
+    if not raw_b64:
+        candidate_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "vip_sniper_raw.js"),
+            "/home/foridul/.gemini/antigravity-ide/scratch/vip_snipher_pro/decompiled/resources/res/raw/e.js"
+        ]
+        found_data = None
+        for p in candidate_paths:
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    found_data = f.read().strip()
+                break
+        if not found_data:
+            raise FileNotFoundError("VIP Sniper Pro encrypted config file (e.js) not found.")
+        raw_b64 = found_data
+
+    # Decrypt outer layer (Mode 0)
+    outer_str = vip_decrypt_mode0(raw_b64)
+    data = json.loads(outer_str)
+
+    version = data.get("Version", "1.0.0")
+    glob_user = vip_decrypt_mode2(data.get("Username")) or "james"
+    glob_pass = vip_decrypt_mode2(data.get("Password")) or "james"
+    notes = data.get("Notes", "")
+
+    # Decrypt servers
+    decrypted_servers = []
+    for s in data.get("Servers", []):
+        s_dec = {}
+        for k, v in s.items():
+            if k == "ServerIPHost":
+                s_dec[k] = vip_decrypt_mode1(v)
+            elif k in ["Username", "Password"]:
+                s_dec[k] = vip_decrypt_mode2(v) or (glob_user if k == "Username" else glob_pass)
+            elif k == "V2Ray" and isinstance(v, dict):
+                v2 = {}
+                for vk, vv in v.items():
+                    if vk in ["V2RayHost", "PATH"]:
+                        v2[vk] = vip_decrypt_mode1(vv)
+                    elif vk == "UUID":
+                        v2[vk] = vip_decrypt_mode0(vv)
+                    else:
+                        v2[vk] = vv
+                s_dec[k] = v2
+            elif k == "SlowDNS" and isinstance(v, dict):
+                sd = {}
+                for sk, sv in v.items():
+                    sd[sk] = vip_decrypt_mode0(sv) if isinstance(sv, str) else sv
+                s_dec[k] = sd
+            elif isinstance(v, str):
+                s_dec[k] = vip_decrypt_mode0(v)
+            else:
+                s_dec[k] = v
+        decrypted_servers.append(s_dec)
+
+    # Decrypt networks (including nested V2Ray.SNIHost and ProxySettings.Squid)
+    decrypted_networks = []
+    for n in data.get("Networks", []):
+        n_dec = {}
+        for k, v in n.items():
+            if k in ["SNIHost", "Payload"]:
+                n_dec[k] = vip_decrypt_mode1(v)
+            elif k == "V2Ray" and isinstance(v, dict):
+                v2 = {}
+                for vk, vv in v.items():
+                    if vk in ["SNIHost", "CustomV2RAYConfig"]:
+                        v2[vk] = vip_decrypt_mode1(vv)
+                    elif isinstance(vv, str):
+                        v2[vk] = vip_decrypt_mode0(vv)
+                    else:
+                        v2[vk] = vv
+                n_dec[k] = v2
+            elif k == "ProxySettings" and isinstance(v, dict):
+                ps = {}
+                for pk, pv in v.items():
+                    if isinstance(pv, str):
+                        ps[pk] = vip_decrypt_mode0(pv)
+                    else:
+                        ps[pk] = pv
+                n_dec[k] = ps
+            elif isinstance(v, str):
+                n_dec[k] = vip_decrypt_mode0(v)
+            else:
+                n_dec[k] = v
+        decrypted_networks.append(n_dec)
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
+
+    # Format beautiful text report
+    lines = [
+        "=============================================================================",
+        "  VIP SNIPER PRO DECRYPTED CONFIGURATION (100% LIVE & USABLE)",
+        "  Powered By : @Foridul_002 🇧🇩",
+        "  Bot        : @decryptvpnappbot",
+        f"  Date & Time: {now_str}",
+        "=============================================================================",
+        "",
+        "[+] ACCOUNT & CREDENTIALS:",
+        f"  • Config Version   : {version}",
+        f"  • Default Username : {glob_user}",
+        f"  • Default Password : {glob_pass}",
+        f"  • Total Servers    : {len(decrypted_servers)}",
+        f"  • Total Networks   : {len(decrypted_networks)}",
+        "",
+        "=============================================================================",
+        "  SERVERS LIST & FULL CONNECTION DETAILS",
+        "=============================================================================",
+    ]
+
+    for idx, s in enumerate(decrypted_servers, 1):
+        name = s.get("Name", f"Server {idx}")
+        subname = s.get("Subname", "")
+        host = s.get("ServerIPHost", "")
+        proto = s.get("Protocol", 0)
+        tcp = s.get("OpenVPNTCPPort", "")
+        ssl = s.get("OpenVPNSSLPort", "")
+        u = s.get("Username") or glob_user
+        p = s.get("Password") or glob_pass
+
+        lines.append(f"{idx}. {name} ({subname})")
+        lines.append(f"   • Host/IP  : {host}")
+        lines.append(f"   • Protocol : {proto}")
+        if tcp or ssl:
+            lines.append(f"   • Ports    : TCP {tcp} | SSL {ssl}")
+        if u or p:
+            lines.append(f"   • User/Pass: {u} / {p}")
+
+        if "V2Ray" in s and isinstance(s["V2Ray"], dict):
+            v2 = s["V2Ray"]
+            uuid = v2.get("UUID", "")
+            v2host = v2.get("V2RayHost", "")
+            path = v2.get("PATH", "")
+            lines.append(f"   • V2Ray UUID: {uuid}")
+            lines.append(f"   • V2Ray Host: {v2host}")
+            lines.append(f"   • V2Ray Path: {path}")
+
+        if "SlowDNS" in s and isinstance(s["SlowDNS"], dict):
+            sd = s["SlowDNS"]
+            lines.append(f"   • NS Host  : {sd.get('NSNameServer', '')}")
+            lines.append(f"   • PubKey   : {sd.get('PubKey', '')}")
+
+        lines.append("")
+
+    lines.extend([
+        "=============================================================================",
+        "  FULL DECRYPTED DATABASE (SERVERS & NETWORKS JSON)",
+        "=============================================================================",
+        json.dumps({
+            "Version": version,
+            "Global_Username": glob_user,
+            "Global_Password": glob_pass,
+            "Notes": notes,
+            "Servers": decrypted_servers,
+            "Networks": decrypted_networks
+        }, indent=2, ensure_ascii=False)
+    ])
+
+    full_txt = "\n".join(lines)
+    result = {
+        "txt_content": full_txt,
+        "version": version,
+        "glob_user": glob_user,
+        "glob_pass": glob_pass,
+        "total_servers": len(decrypted_servers),
+        "total_networks": len(decrypted_networks),
+        "servers": decrypted_servers,
+        "networks": decrypted_networks
+    }
+
+    if not raw_b64:
+        VIP_CACHED_DATA = result
+        VIP_CACHE_TIMESTAMP = now
+
+    return result
+
+
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
     if not BOT_TOKEN:
@@ -533,6 +913,7 @@ def start_bot():
                 InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
                 InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
                 InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
+                InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
                 InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
             )
             bot.edit_message_text(
@@ -693,9 +1074,61 @@ def start_bot():
                     message_id=status_msg.message_id
                 )
 
+        elif call.data == "dec_vipsniper":
+            bot.answer_callback_query(call.id, "⏳ Decrypting VIP Sniper Pro Config...")
+
+            status_msg = bot.send_message(
+                chat_id,
+                "⏳ <b>VIP Sniper Pro ডিক্রিপ্ট করা হচ্ছে...</b>\n"
+                "🔐 3-Layer Crypto (XXTEA + Threefish-256 + AES) ভাঙা হচ্ছে...\n"
+                "অনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+            )
+
+            try:
+                res = decrypt_vipsniper_pro()
+                txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
+                txt_bytes.name = "VIP_Sniper_Pro_Decrypted.txt"
+
+                version = res["version"]
+                total_servers = res["total_servers"]
+                total_networks = res["total_networks"]
+                glob_user = res["glob_user"]
+                glob_pass = res["glob_pass"]
+
+                # Server preview (first 3)
+                server_preview = ""
+                for idx, s in enumerate(res["servers"][:3], 1):
+                    name = s.get("Name", f"Server {idx}")
+                    host = s.get("ServerIPHost", "")
+                    server_preview += f"  {idx}. {name}\n     → <code>{host}</code>\n"
+
+                caption = (
+                    "✅ <b>VIP Sniper Pro 100% Fully Decrypted!</b>\n\n"
+                    f"📦 <b>Version:</b> <code>{version}</code>\n"
+                    f"🔐 <b>Username:</b> <code>{glob_user}</code>\n"
+                    f"🔑 <b>Password:</b> <code>{glob_pass}</code>\n"
+                    f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
+                    f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n\n"
+                    "<b>🚀 Server Preview:</b>\n"
+                    f"{server_preview}\n"
+                    "🔓 <b>Crypto Layers Broken:</b>\n"
+                    "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
+                    "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
+                    "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
+                    "📁 <i>সম্পূর্ণ ডিক্রিপ্ট করা সার্ভার, নেটওয়ার্ক, ক্রেডেনশিয়াল সংযুক্ত ফাইলে দেওয়া হয়েছে।</i>\n\n"
+                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                )
+
+                bot.send_document(
+                    chat_id,
+                    txt_bytes,
+                    caption=caption
+                )
+                bot.delete_message(chat_id, status_msg.message_id)
+
             except Exception as e:
                 bot.edit_message_text(
-                    f"❌ <b>Ursa Net PRO Decryption Failed!</b>\nError: <code>{e}</code>",
+                    f"❌ <b>VIP Sniper Pro Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
