@@ -19,6 +19,7 @@ import threading
 import urllib.parse
 import requests
 import yaml
+import hashlib
 from typing import Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
@@ -962,6 +963,214 @@ def decrypt_vipsniper_pro(raw_b64: str = None) -> Dict[str, Any]:
     return result
 
 
+# ================= SENSEI TUNNEL 2026 DECRYPTION ENGINE =================
+SENSEI_CERT_SHA256 = "a9e40f078e9361d7114ac6e236402ed1e15c6ba031f9cd6c73f8e7855d7688b0"
+SENSEI_V3_SALT = "sensei::cfg::v3::2026"
+SENSEI_AES_KEY = hashlib.sha256(f"{SENSEI_CERT_SHA256}:{SENSEI_V3_SALT}".encode("utf-8")).digest()
+
+SENSEI_URL_CONFIGS = "https://raw.githubusercontent.com/JubairZ/sensei-tunnel-configs/master/sensei_configs_2026_v2.enc"
+SENSEI_URL_BACKUP = "https://raw.githubusercontent.com/JubairZ/sensei-tunnel-configs/master/sensei_backup.enc"
+SENSEI_URL_SETTINGS = "https://raw.githubusercontent.com/JubairZ/sensei-tunnel-configs/master/sensei_app_settings.enc"
+
+SENSEI_CACHED_DATA = None
+SENSEI_CACHE_TIMESTAMP = 0
+SENSEI_CACHE_TTL = 300
+
+
+def decrypt_sensei_v3(enc_str: str) -> str:
+    """Decrypts sensei:v3: payload using AES-256-GCM."""
+    prefix = "sensei:v3:"
+    if enc_str.startswith(prefix):
+        enc_str = enc_str[len(prefix):]
+    raw = base64.b64decode(enc_str.strip())
+    nonce = raw[:12]
+    ciphertext_with_tag = raw[12:]
+    return AESGCM(SENSEI_AES_KEY).decrypt(nonce, ciphertext_with_tag, None).decode("utf-8")
+
+
+def decrypt_sensei_tunnel_live() -> Dict[str, Any]:
+    """Fetch live configs and backup from official Sensei Tunnel repository and decrypt completely."""
+    global SENSEI_CACHED_DATA, SENSEI_CACHE_TIMESTAMP
+    now = time.time()
+    if SENSEI_CACHED_DATA and (now - SENSEI_CACHE_TIMESTAMP < SENSEI_CACHE_TTL):
+        return SENSEI_CACHED_DATA
+
+    headers = {"User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; Build/QP1A.190711.020)"}
+
+    r_cfg = requests.get(SENSEI_URL_CONFIGS, headers=headers, timeout=12)
+    r_cfg.raise_for_status()
+    configs = json.loads(decrypt_sensei_v3(r_cfg.text))
+
+    backup = {}
+    try:
+        r_bak = requests.get(SENSEI_URL_BACKUP, headers=headers, timeout=12)
+        if r_bak.status_code == 200:
+            backup = json.loads(decrypt_sensei_v3(r_bak.text))
+    except Exception:
+        pass
+
+    settings = {}
+    try:
+        r_set = requests.get(SENSEI_URL_SETTINGS, headers=headers, timeout=12)
+        if r_set.status_code == 200:
+            settings = json.loads(decrypt_sensei_v3(r_set.text))
+    except Exception:
+        pass
+
+    servers = backup.get("servers", [])
+    server_map = {s["id"]: s for s in servers if "id" in s}
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S 🇧🇩")
+
+    lines = [
+        "==============================================================================",
+        "  SENSEI TUNNEL 2026 - FULL LIVE API DECRYPTED CONFIGURATIONS & SERVERS",
+        "  By         : @Foridul_002 🇧🇩",
+        "  Target App : Sensei Tunnel (com.sensei.tunnel)",
+        "  Live API   : JubairZ/sensei-tunnel-configs (Official Repository)",
+        "  Decryption : AES-256-GCM (sensei:v3 Native JNI Core Broken)",
+        f"  Date & Time: {now_str}",
+        "==============================================================================",
+        "",
+        "[+] LIVE SUMMARY:",
+        f"  • Total Active Configs : {len(configs)}",
+        f"  • Backend Pool Servers : {len(servers)}",
+        f"  • App Settings Version : {settings.get('settings', {}).get('latestVersion', 'Latest')}",
+        f"  • App Locked Status    : {'LOCKED' if settings.get('settings', {}).get('appLocked') else 'ONLINE & ACTIVE'}",
+        "",
+        "==============================================================================",
+        "  PART 1: ALL LIVE APPLICATION CONFIGURATIONS (NO FILTER - 100% UNLOCKED)",
+        "==============================================================================",
+        ""
+    ]
+
+    for idx, c in enumerate(configs, 1):
+        name = c.get("name", f"Config {idx}")
+        category = c.get("category", "")
+        proto = (c.get("protocol") or "unknown").lower()
+        note = c.get("note") or c.get("tweakNote") or ""
+        vip = c.get("vip", False)
+
+        srv_id = c.get("serverId", "")
+        srv = server_map.get(srv_id, {})
+
+        addr = c.get("address") or srv.get("address", "")
+        port = c.get("port") or srv.get("port", "")
+        u = c.get("sshUser") or srv.get("sshUser", "")
+        p = c.get("sshPass") or srv.get("sshPass", "")
+        uuid = c.get("uuid") or srv.get("uuid", "")
+
+        inject_mode = c.get("injectMode") or ""
+        payload = c.get("payload") or c.get("injectPayload") or ""
+        sni = c.get("sni") or srv.get("sni") or ""
+        inj_host = c.get("injectHost") or ""
+        inj_port = c.get("injectPort") or ""
+        ovpn_cfg = c.get("ovpnConfig") or srv.get("ovpnConfig") or ""
+        trans = c.get("transport") or srv.get("transport") or "tcp"
+        sec = c.get("security") or srv.get("security") or "none"
+        ws_host = c.get("host") or srv.get("host") or ""
+        ws_path = c.get("path") or srv.get("path") or ""
+
+        lines.append(f"[{idx:02d}] 🎯 {name}")
+        lines.append(f"     • Protocol Type : {proto.upper()} ({trans.upper()} | Security: {sec.upper()})")
+        if category: lines.append(f"     • Category      : {category}")
+        if vip: lines.append("     • VIP Access    : UNLOCKED (Bypassed)")
+        if note: lines.append(f"     • Note / Tweak  : {note}")
+
+        if addr and port:
+            lines.append(f"     • Server Target : {addr}:{port}")
+
+        if u or p:
+            lines.append(f"     • Credentials   : Username: {u} | Password: {p}")
+        if uuid:
+            lines.append(f"     • Account UUID  : {uuid}")
+
+        if inject_mode and inject_mode != "none":
+            lines.append(f"     • Inject Mode   : {inject_mode}")
+        if inj_host:
+            lines.append(f"     • Inject Proxy  : {inj_host}:{inj_port}")
+        if sni:
+            lines.append(f"     • SNI (Bug Host): {sni}")
+        if payload:
+            clean_p = payload.replace("\r", "").replace("\n", " [CRLF] ")
+            lines.append(f"     • Payload       : {clean_p}")
+
+        if proto == "vless" and uuid and addr:
+            q = {}
+            if trans: q["type"] = trans
+            if sec and sec != "none": q["security"] = sec
+            if sni: q["sni"] = sni
+            if ws_host: q["host"] = ws_host
+            if ws_path and ws_path != "/": q["path"] = ws_path
+            q_str = f"?{urllib.parse.urlencode(q)}" if q else ""
+            vless_link = f"vless://{uuid}@{addr}:{port}{q_str}#{urllib.parse.quote(name)}"
+            lines.append(f"     • 1-Click Import: {vless_link}")
+        elif proto == "socks" and addr and port:
+            lines.append(f"     • 1-Click Import: tg://socks?server={addr}&port={port}")
+        elif proto == "http_proxy" and addr and port:
+            lines.append(f"     • HTTP Proxy    : http://{addr}:{port}")
+
+        if proto == "openvpn" and ovpn_cfg:
+            lines.append("     --- [Ready .ovpn Profile] ---")
+            for ov_line in ovpn_cfg.splitlines():
+                lines.append(f"     | {ov_line}")
+
+        lines.append("")
+
+    lines.extend([
+        "==============================================================================",
+        "  PART 2: BACKEND SERVER POOL (32 RAW CLUSTER SERVERS)",
+        "==============================================================================",
+        ""
+    ])
+
+    for idx, s in enumerate(servers, 1):
+        s_name = s.get("name", f"Server {idx}")
+        s_proto = (s.get("protocol") or "unknown").lower()
+        s_addr = s.get("address", "")
+        s_port = s.get("port", "")
+        s_u = s.get("sshUser", "")
+        s_p = s.get("sshPass", "")
+        s_uuid = s.get("uuid", "")
+        s_sni = s.get("sni", "")
+        s_country = s.get("country", "")
+
+        lines.append(f"[{idx:02d}] 🌐 {s_name} ({s_country})")
+        lines.append(f"     • Protocol : {s_proto.upper()}")
+        lines.append(f"     • Host/Port: {s_addr}:{s_port}")
+        if s_u or s_p:
+            lines.append(f"     • Account  : User: {s_u} | Pass: {s_p}")
+        if s_uuid:
+            lines.append(f"     • UUID     : {s_uuid}")
+        if s_sni:
+            lines.append(f"     • SNI Host : {s_sni}")
+        lines.append("")
+
+    lines.extend([
+        "==============================================================================",
+        "  PART 3: FULL RAW JSON DATABASE (CONFIGS + SERVERS + SETTINGS)",
+        "==============================================================================",
+        json.dumps({
+            "configs": configs,
+            "servers": servers,
+            "settings": settings
+        }, indent=2, ensure_ascii=False)
+    ])
+
+    full_txt = "\n".join(lines)
+    result = {
+        "txt_content": full_txt,
+        "total_configs": len(configs),
+        "total_servers": len(servers),
+        "configs": configs,
+        "servers": servers,
+        "settings": settings
+    }
+    SENSEI_CACHED_DATA = result
+    SENSEI_CACHE_TIMESTAMP = now
+    return result
+
+
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
     if not BOT_TOKEN:
@@ -977,7 +1186,8 @@ def start_bot():
             InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
             InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
             InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
-            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper")
+            InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
+            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei")
         )
         
         user_name = message.from_user.first_name or "User"
@@ -1001,6 +1211,7 @@ def start_bot():
                 InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
                 InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
                 InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
+                InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
                 InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
             )
             bot.edit_message_text(
@@ -1216,6 +1427,61 @@ def start_bot():
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>VIP Sniper Pro Decryption Failed!</b>\nError: <code>{e}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
+
+        elif call.data == "dec_sensei":
+            bot.answer_callback_query(call.id, "⏳ Decrypting Sensei Tunnel Live Config...")
+
+            status_msg = bot.send_message(
+                chat_id,
+                "⏳ <b>Fetching & Decrypting Sensei Tunnel...</b>\n"
+                "📡 Connecting to Live GitHub API Repository...\n"
+                "🔐 Breaking v3 Native JNI Crypto (AES-256-GCM + Cert-Bound Key)...\n"
+                "Please wait a few seconds."
+            )
+
+            try:
+                res = decrypt_sensei_tunnel_live()
+                txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
+                txt_bytes.name = "Sensei_Tunnel_Live_Decrypted.txt"
+
+                total_configs = res["total_configs"]
+                total_servers = res["total_servers"]
+
+                # Server preview (first 4)
+                server_preview = ""
+                for idx, c in enumerate(res["configs"][:4], 1):
+                    name = c.get("name", f"Config {idx}")
+                    proto = (c.get("protocol") or "").upper()
+                    server_preview += f"  {idx}. {name} [<code>{proto}</code>]\n"
+
+                caption = (
+                    "✅ <b>Sensei Tunnel 100% Fully Decrypted!</b>\n\n"
+                    f"🌐 <b>Total Live Configs:</b> <code>{total_configs}</code>\n"
+                    f"🖥️ <b>Cluster Servers:</b> <code>{total_servers}</code>\n"
+                    "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
+                    "<b>🚀 Config Preview:</b>\n"
+                    f"{server_preview}\n"
+                    "🔓 <b>Crypto Layers Broken:</b>\n"
+                    "  • Header: <code>sensei:v3:</code> (Native libsenseicrypto)\n"
+                    "  • Key Derivation: SHA-256(CertSHA256:sensei::cfg::v3::2026)\n"
+                    "  • Cipher: AES-256-GCM (12-byte Nonce + 16-byte Tag)\n\n"
+                    "📁 <i>Complete decrypted servers, OpenVPN profiles, VLESS links, and credentials attached.</i>\n\n"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+                )
+
+                bot.send_document(
+                    chat_id,
+                    txt_bytes,
+                    caption=caption
+                )
+                bot.delete_message(chat_id, status_msg.message_id)
+
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>Sensei Tunnel Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
