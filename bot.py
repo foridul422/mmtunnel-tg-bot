@@ -2,7 +2,7 @@
 """
 =============================================================================
   TELEGRAM VPN DECRYPTOR BOT (FOR RENDER DEPLOYMENT)
-  Powered By : @Foridul_002 🇧🇩
+  By         : @Foridul_002 🇧🇩
 =============================================================================
 """
 
@@ -181,7 +181,7 @@ def decrypt_mmtunnel_live() -> Dict[str, Any]:
     full_output = {
         "CREDITS": [
             {
-                "Owner": "Powered By @Foridul_002 🇧🇩",
+                "Owner": "By @Foridul_002 🇧🇩",
                 "Bot": "Decrypted By @Foridul_002 🤖",
                 "User": "@Foridul_002 👤",
                 "Date & Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
@@ -290,7 +290,7 @@ def decrypt_terix_live() -> Dict[str, Any]:
     lines = [
         "=============================================================================",
         "  TERIX VPN DECRYPTED CONFIGURATION (100% LIVE)",
-        "  Powered By : @Foridul_002 🇧🇩",
+        "  By         : @Foridul_002 🇧🇩",
         "  Bot        : @decryptvpnappbot",
         f"  Date & Time: {now_str}",
         "=============================================================================",
@@ -482,7 +482,7 @@ def decrypt_ursa_live() -> Dict[str, Any]:
     full_output = {
         "CREDITS": [
             {
-                "Owner": "Powered By @Foridul_002 🇧🇩",
+                "Owner": "By @Foridul_002 🇧🇩",
                 "Bot": "Decrypted By @decryptvpnappbot 🤖",
                 "Date & Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ⏳")
             }
@@ -838,7 +838,7 @@ def decrypt_vipsniper_pro(raw_b64: str = None) -> Dict[str, Any]:
     lines = [
         "=============================================================================",
         "  VIP SNIPER PRO DECRYPTED CONFIGURATION (100% LIVE & USABLE)",
-        "  Powered By : @Foridul_002 🇧🇩",
+        "  By         : @Foridul_002 🇧🇩",
         "  Bot        : @decryptvpnappbot",
         f"  Date & Time: {now_str}",
         "=============================================================================",
@@ -984,7 +984,7 @@ def start_bot():
         welcome_text = (
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
-            "<i>Powered by: @Foridul_002 🇧🇩</i>\n\n"
+            "<i>By: @Foridul_002 🇧🇩</i>\n\n"
             "যে VPN-এর কনফিগ ডিক্রিপ্ট করতে চান নিচের তালিকা থেকে সিলেক্ট করুন:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
@@ -1052,7 +1052,7 @@ def start_bot():
                     f"🔑 <b>OpenVPN Pass:</b> <code>{ovpn_pass}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{servers_count}</code>\n"
                     f"📡 <b>Total Networks:</b> <code>{networks_count}</code>\n\n"
-                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
                 # Send .txt file document
@@ -1101,7 +1101,7 @@ def start_bot():
                     "<b>🚀 Server Preview:</b>\n"
                     f"{server_preview}\n\n"
                     "📁 <i>সম্পূর্ণ Clash YAML এবং সার্ভার লিস্ট সংযুক্ত ফাইলে দেওয়া হয়েছে।</i>\n\n"
-                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
                 bot.send_document(
@@ -1143,7 +1143,7 @@ def start_bot():
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Payloads:</b> <code>{total_payloads}</code>\n\n"
                     "📁 <i>সমস্ত এনক্রিপ্ট করা ডাটা (সার্ভার হোস্ট, পেলোড, টুইক) কোনো ফিল্টারিং ছাড়া সম্পূর্ণ ডিকোড করে TXT ফাইলে দেওয়া হলো।</i>\n\n"
-                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
                 # Send ONLY ONE txt file
@@ -1203,7 +1203,7 @@ def start_bot():
                     "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
                     "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
                     "📁 <i>সম্পূর্ণ ডিক্রিপ্ট করা সার্ভার, নেটওয়ার্ক, ক্রেডেনশিয়াল সংযুক্ত ফাইলে দেওয়া হয়েছে।</i>\n\n"
-                    "🤖 <b>Decrypted By:</b> @Foridul_002 🇧🇩"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
                 bot.send_document(
