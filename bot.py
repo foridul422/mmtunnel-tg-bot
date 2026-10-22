@@ -985,7 +985,7 @@ def start_bot():
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
             "<i>By: @Foridul_002 🇧🇩</i>\n\n"
-            "যে VPN-এর কনফিগ ডিক্রিপ্ট করতে চান নিচের তালিকা থেকে সিলেক্ট করুন:"
+            "Select the VPN you want to decrypt from the list below:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
@@ -1004,7 +1004,7 @@ def start_bot():
                 InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
             )
             bot.edit_message_text(
-                "📋 <b>Available VPN List:</b>\n\nযে VPN-এর কনফিগ ডিক্রিপ্ট করতে চান তা সিলেক্ট করুন:",
+                "📋 <b>Available VPN List:</b>\n\nSelect the VPN you want to decrypt:",
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=markup
@@ -1014,7 +1014,7 @@ def start_bot():
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("🌐 VPN List", callback_data="vpn_list"))
             bot.edit_message_text(
-                "🤖 <b>Main Menu</b>\n\nনিচের <b>'VPN List'</b> বাটনে ক্লিক করুন:",
+                "🤖 <b>Main Menu</b>\n\nClick the <b>'VPN List'</b> button below:",
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=markup
@@ -1026,7 +1026,7 @@ def start_bot():
             # Send loading message
             status_msg = bot.send_message(
                 chat_id, 
-                "⏳ <b>MM Tunnel লাইভ ডাটা ডিক্রিপ্ট করা হচ্ছে...</b>\nঅনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+                "⏳ <b>Decrypting MM Tunnel live data...</b>\nPlease wait a few seconds."
             )
 
             try:
@@ -1076,7 +1076,7 @@ def start_bot():
             # Send loading message
             status_msg = bot.send_message(
                 chat_id, 
-                "⏳ <b>TeriX VPN লাইভ ডাটা ফেচ ও ডিক্রিপ্ট করা হচ্ছে...</b>\nঅনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+                "⏳ <b>Fetching & decrypting TeriX VPN live data...</b>\nPlease wait a few seconds."
             )
 
             try:
@@ -1100,7 +1100,7 @@ def start_bot():
                     f"🌐 <b>Total Proxy Servers:</b> <code>{total_proxies}</code>\n\n"
                     "<b>🚀 Server Preview:</b>\n"
                     f"{server_preview}\n\n"
-                    "📁 <i>সম্পূর্ণ Clash YAML এবং সার্ভার লিস্ট সংযুক্ত ফাইলে দেওয়া হয়েছে।</i>\n\n"
+                    "📁 <i>Full Clash YAML and server list attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
@@ -1123,7 +1123,7 @@ def start_bot():
             
             status_msg = bot.send_message(
                 chat_id, 
-                "⏳ <b>Ursa Net PRO লাইভ ডাটা ডিক্রিপ্ট করা হচ্ছে...</b>\nঅনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+                "⏳ <b>Decrypting Ursa Net PRO live data...</b>\nPlease wait a few seconds."
             )
 
             try:
@@ -1142,7 +1142,7 @@ def start_bot():
                     f"📦 <b>Config Version:</b> <code>{version}</code>\n"
                     f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
                     f"📡 <b>Total Payloads:</b> <code>{total_payloads}</code>\n\n"
-                    "📁 <i>সমস্ত এনক্রিপ্ট করা ডাটা (সার্ভার হোস্ট, পেলোড, টুইক) কোনো ফিল্টারিং ছাড়া সম্পূর্ণ ডিকোড করে TXT ফাইলে দেওয়া হলো।</i>\n\n"
+                    "📁 <i>All decrypted data (server hosts, payloads, tweaks) attached in TXT file without filtering.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
@@ -1166,9 +1166,9 @@ def start_bot():
 
             status_msg = bot.send_message(
                 chat_id,
-                "⏳ <b>VIP Sniper Pro ডিক্রিপ্ট করা হচ্ছে...</b>\n"
-                "🔐 3-Layer Crypto (XXTEA + Threefish-256 + AES) ভাঙা হচ্ছে...\n"
-                "অনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন।"
+                "⏳ <b>Decrypting VIP Sniper Pro...</b>\n"
+                "🔐 Breaking 3-Layer Crypto (XXTEA + Threefish-256 + AES)...\n"
+                "Please wait a few seconds."
             )
 
             try:
@@ -1202,7 +1202,7 @@ def start_bot():
                     "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
                     "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
                     "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
-                    "📁 <i>সম্পূর্ণ ডিক্রিপ্ট করা সার্ভার, নেটওয়ার্ক, ক্রেডেনশিয়াল সংযুক্ত ফাইলে দেওয়া হয়েছে।</i>\n\n"
+                    "📁 <i>Complete decrypted servers, networks, and credentials attached in file.</i>\n\n"
                     "🤖 <b>By:</b> @Foridul_002 🇧🇩"
                 )
 
