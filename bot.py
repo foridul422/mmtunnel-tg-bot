@@ -1193,8 +1193,10 @@ IZPH_DELTA = 0x7a56d3e1
 IZPH_MASK32 = 0xffffffff
 
 IZPH_LIVE_ENDPOINTS = [
-    ("izphvpn2027", "https://raw.githubusercontent.com/kiranoble/config/main/izphvpn2027"),
     ("izph49", "https://raw.githubusercontent.com/kiranoble/config/main/izph49"),
+    ("gcpvpn2026", "https://raw.githubusercontent.com/kiranoble/config/main/gcpvpn2026"),
+    ("netflux", "https://raw.githubusercontent.com/kiranoble/config/main/netflux"),
+    ("izphvpn2027", "https://raw.githubusercontent.com/kiranoble/config/main/izphvpn2027"),
     ("izphv18", "https://raw.githubusercontent.com/kiranoble/config/main/izphv18"),
     ("izph2026", "https://raw.githubusercontent.com/kiranoble/config/main/izph2026"),
 ]
@@ -1384,15 +1386,53 @@ def izph_decrypt_mode2(b64_str: str) -> str:
 
 
 def fetch_izph_live():
+    candidate_endpoints = []
+    # Check newer version numbers first (izph55 down to izph49)
+    for num in range(55, 48, -1):
+        candidate_endpoints.append((f"izph{num}", f"https://raw.githubusercontent.com/kiranoble/config/main/izph{num}"))
+    for item in IZPH_LIVE_ENDPOINTS:
+        if item not in candidate_endpoints:
+            candidate_endpoints.append(item)
+
+    best_config = None
+    best_source = None
+    best_ver_parts = []
+    best_srv_count = 0
+
     headers = {"User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; Build/QP1A.190711.020)"}
-    for name, url in IZPH_LIVE_ENDPOINTS:
+    for name, url in candidate_endpoints:
         try:
-            r = requests.get(url, headers=headers, timeout=10)
+            r = requests.get(url, headers=headers, timeout=5)
             if r.status_code == 200 and len(r.text.strip()) > 1000:
-                return r.text.strip(), f"Live GitHub ({name})"
+                raw = r.text.strip()
+                try:
+                    dec = izph_decrypt_outer(raw)
+                    obj = json.loads(dec)
+                    ver = obj.get("Version", "0")
+                    vparts = [int(p) for p in re.findall(r'\d+', str(ver))]
+                    scount = len(obj.get("Servers", []))
+
+                    if best_config is None:
+                        best_config = raw
+                        best_source = f"Live GitHub ({name})"
+                        best_ver_parts = vparts
+                        best_srv_count = scount
+                    else:
+                        max_l = max(len(vparts), len(best_ver_parts))
+                        p1 = vparts + [0] * (max_l - len(vparts))
+                        p2 = best_ver_parts + [0] * (max_l - len(best_ver_parts))
+                        if p1 > p2 or (p1 == p2 and scount > best_srv_count):
+                            best_config = raw
+                            best_source = f"Live GitHub ({name})"
+                            best_ver_parts = vparts
+                            best_srv_count = scount
+                    if best_ver_parts and best_ver_parts[0] >= 3108:
+                        break
+                except Exception:
+                    continue
         except Exception:
             continue
-    return None, None
+    return best_config, best_source
 
 
 def decrypt_izph_vpn_pro_live(raw_b64: str = None) -> Dict[str, Any]:
