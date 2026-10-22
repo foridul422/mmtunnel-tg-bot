@@ -565,12 +565,8 @@ def start_bot():
         doc = message.document
         file_name = doc.file_name or "config.hc"
 
+        # Silently ignore non-.hc files without sending any response
         if not file_name.lower().endswith(".hc"):
-            bot.reply_to(
-                message,
-                "⚠️ <b>Unsupported File!</b>\n\n"
-                "Please upload or forward a valid <b>.hc</b> (HTTP Custom) configuration file."
-            )
             return
 
         status_msg = bot.reply_to(
@@ -586,29 +582,22 @@ def start_bot():
 
             res = decrypt_hc_file(downloaded_bytes)
 
-            txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
-            out_filename = file_name.rsplit(".", 1)[0] + "_Decrypted.txt"
-            txt_bytes.name = out_filename
-
-            creator = res.get("creator", "Unknown")
-            name = res.get("name", "Config")
-            protocol = res.get("protocol", "HTTP Custom")
-            version = res.get("version", "v10")
-
-            caption = (
-                "✅ <b>HTTP Custom (.hc) 100% Fully Decrypted!</b>\n\n"
-                f"📦 <b>Config Name:</b> <code>{html_escape(name)}</code>\n"
-                f"👤 <b>Creator:</b> <code>{html_escape(creator)}</code>\n"
-                f"🌐 <b>Protocol:</b> <code>{html_escape(protocol)}</code>\n"
-                f"⚡ <b>Version:</b> <code>{html_escape(version)}</code>\n\n"
-                "📁 <i>Complete decrypted raw database and server config attached in TXT file.</i>\n\n"
-                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            # Send clean, styled direct message replying to the uploaded file
+            bot.send_message(
+                chat_id,
+                res["styled_message"],
+                reply_to_message_id=message.message_id,
+                parse_mode="HTML",
+                disable_web_page_preview=True
             )
-
-            bot.send_document(chat_id, txt_bytes, caption=caption)
-            bot.delete_message(chat_id, status_msg.message_id)
+            try:
+                bot.delete_message(chat_id, status_msg.message_id)
+            except Exception:
+                pass
 
             # Audit report to Admin
+            creator = res.get("creator", "Unknown")
+            protocol = res.get("protocol", "Unknown")
             details = (
                 f"File: {file_name}\n"
                 f"Creator: {creator}\n"

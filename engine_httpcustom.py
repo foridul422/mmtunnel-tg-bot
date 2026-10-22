@@ -11,6 +11,9 @@ import struct
 import hmac
 import hashlib
 import json
+import base64
+import urllib.parse
+import datetime
 from typing import Dict, Any, List, Optional
 import nacl.bindings as nb
 
@@ -82,17 +85,23 @@ def _derive_key(prefix: bytes, salt: bytes, info: bytes) -> bytes:
     return hmac.new(prk, info + b"\x01", hashlib.sha256).digest()
 
 
+def html_escape(text: Any) -> str:
+    if text is None:
+        return ""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
 # ================= MAIN DECRYPTION LOGIC =================
 def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
     """
     Decrypts an HTTP Custom (.hc) configuration file and extracts:
-    - Protocol (V2Ray, SSH, OpenVPN, etc.)
-    - Host / IP
-    - Port
+    - Protocol (V2Ray VLESS/VMess/Trojan, SSH, OpenVPN)
+    - Host / IP & Port
     - Username / Password / UUID
     - SNI / Bug Host
     - Payloads / Custom Headers / WebSocket settings
     - Protection & Expiry Details
+    - Styled Direct Message string ready for Telegram
     """
     # 1. Unicode code-point mapping to recover raw ciphertext bytes
     try:
@@ -197,60 +206,228 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
 
             profiles.append(fields)
 
-    # 5. Build Human-Readable & Raw Text Output
+    # 5. Extract Rich Connection Details
     primary_profile = profiles[0] if profiles else {}
+    name = primary_profile.get("a", "Config")
     protocol = primary_profile.get("b") or parts or "HTTP Custom"
-    host = primary_profile.get("c") or "N/A"
-    port = primary_profile.get("d") or 0
-    name = primary_profile.get("a") or "Config"
-    sni = primary_profile.get("g") or "None"
-    notes = protections.get("v") or protections.get("note") or "None"
+    host = primary_profile.get("c", "N/A")
+    port = primary_profile.get("d", 0)
+    username = primary_profile.get("e", "")
+    password = primary_profile.get("f", "")
+    sni = primary_profile.get("g", "")
+    raw_h = primary_profile.get("h", "")
+    inject_flag = str(primary_profile.get("k", "0"))
+    inject_mode = "PROXY" if inject_flag == "1" else "DIRECT"
+    proxy_val = ""
+    notes = protections.get("v") or protections.get("note") or ""
 
-    # Format output text file
-    lines = [
-        "=============================================================================",
-        "  HTTP CUSTOM (.hc) 100% FULLY DECRYPTED CONFIGURATION",
-        "  By         : @Foridul_002 🇧🇩",
-        "  Status     : UNLOCKED & EXTRACTED LIVE",
-        "=============================================================================",
+    v2ray_proto = ""
+    uuid = ""
+    network = "ws"
+    ws_path = ""
+    ws_host = ""
+    tls_security = "none"
+    custom_payload = ""
+    v2ray_link = ""
+    is_tls = False
+
+    if raw_h:
+        try:
+            if raw_h.strip().startswith("{") or raw_h.strip().startswith("["):
+                v2ray_data = json.loads(raw_h)
+                # Use remarks if present
+                if v2ray_data.get("remarks"):
+                    name = v2ray_data["remarks"]
+
+                outbounds = v2ray_data.get("outbounds", [])
+                for ob in outbounds:
+                    ob_proto = ob.get("protocol", "").lower()
+                    if ob_proto in ["vless", "vmess", "trojan", "shadowsocks"]:
+                        v2ray_proto = ob_proto.upper()
+                        settings = ob.get("settings", {})
+                        vnext = settings.get("vnext", [])
+                        if vnext:
+                            v_srv = vnext[0]
+                            host = v_srv.get("address") or host
+                            port = v_srv.get("port") or port
+                            users = v_srv.get("users", [])
+                            if users:
+                                u0 = users[0]
+                                uuid = u0.get("id") or u0.get("password") or ""
+                                if u0.get("security"):
+                                    tls_security = u0.get("security")
+
+                        stream = ob.get("streamSettings", {})
+                        network = (stream.get("network") or "ws").lower()
+                        stream_sec = stream.get("security", "")
+                        if stream_sec:
+                            tls_security = stream_sec
+                        is_tls = (stream_sec.lower() == "tls")
+
+                        ws_settings = stream.get("wsSettings", {})
+                        ws_path = ws_settings.get("path", "")
+                        ws_headers = ws_settings.get("headers", {})
+                        ws_host = ws_headers.get("Host", "")
+
+                        tls_settings = stream.get("tlsSettings", {})
+                        if tls_settings.get("serverName"):
+                            sni = tls_settings.get("serverName")
+
+                        # Construct 1-click import link
+                        if ob_proto == "vless" and uuid:
+                            qp = {"type": network, "security": "tls" if is_tls else "none"}
+                            if ws_path: qp["path"] = ws_path
+                            if ws_host: qp["host"] = ws_host
+                            if sni: qp["sni"] = sni
+                            qs = urllib.parse.urlencode(qp)
+                            v2ray_link = f"vless://{uuid}@{host}:{port}?{qs}#{urllib.parse.quote(name)}"
+                        elif ob_proto == "vmess" and uuid:
+                            vmess_dict = {
+                                "v": "2", "ps": name, "add": host, "port": str(port),
+                                "id": uuid, "aid": "0", "net": network, "type": "none",
+                                "host": ws_host, "path": ws_path, "tls": "tls" if is_tls else "",
+                                "sni": sni or ""
+                            }
+                            v2ray_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
+                        elif ob_proto == "trojan" and (uuid or password):
+                            auth_pw = uuid or password
+                            qp = {"type": network, "security": "tls" if is_tls else "none"}
+                            if ws_path: qp["path"] = ws_path
+                            if ws_host: qp["host"] = ws_host
+                            if sni: qp["sni"] = sni
+                            qs = urllib.parse.urlencode(qp)
+                            v2ray_link = f"trojan://{auth_pw}@{host}:{port}?{qs}#{urllib.parse.quote(name)}"
+            else:
+                custom_payload = raw_h
+        except Exception:
+            custom_payload = raw_h
+
+    # Check unlock status for name display
+    is_unlocked = (protections.get("a") == "normal" or not protections.get("a"))
+    name_display = name
+    if is_unlocked and "(Unlocked)" not in name_display:
+        name_display = f"{name_display}  (Unlocked)"
+
+    # Expiry parsing
+    expiry_ms = protections.get("d")
+    expiry_str = ""
+    if expiry_ms and protections.get("c", False):
+        try:
+            exp_dt = datetime.datetime.fromtimestamp(expiry_ms / 1000.0, datetime.timezone(datetime.timedelta(hours=6)))
+            expiry_str = exp_dt.strftime("%Y-%m-%d %I:%M %p BST")
+        except Exception:
+            expiry_str = str(expiry_ms)
+
+    # 6. Build Clean, Styled Direct Telegram Message
+    active_proto = (v2ray_proto or protocol or "CONFIG").upper()
+    if "SSH" in active_proto:
+        active_proto = "SSH"
+
+    msg_lines = [
+        "╔════════════════════════╗",
+        f"   {active_proto} EXTRACTED INFO",
+        "╚════════════════════════╝",
         "",
-        "📋 [SUMMARY]",
-        f"• Creator Label    : {creator}",
-        f"• Profile Name     : {name}",
-        f"• Tunnel Protocol  : {protocol}",
-        f"• Server Host / IP : {host}",
-        f"• Server Port      : {port}",
-        f"• SNI / Bug Host   : {sni}",
-        f"• Notes / Remarks  : {notes.strip()}",
-        "",
-        "🔒 [SECURITY & PROTECTION FLAGS]",
-        f"• Access Mode      : {protections.get('a', 'default')}",
-        f"• Expiry Enabled   : {protections.get('c', False)}",
-        f"• Block Root       : {protections.get('m', False)}",
-        f"• Mobile Data Only : {protections.get('l', False)}",
-        "",
-        "📁 [FULL DECRYPTED RAW PROFILES (JSON)]",
-        json.dumps(profiles, indent=2, ensure_ascii=False),
-        "",
-        "⚙️ [FULL DECRYPTED MANIFEST METADATA]",
-        json.dumps(manifest, indent=2, ensure_ascii=False),
-        "",
-        "=============================================================================",
-        "👑 By: @Foridul_002 🇧🇩"
+        f"🚨 NAME: {html_escape(name_display)}",
+        ""
     ]
 
-    txt_content = "\n".join(lines)
+    tls_str = "ON ✅" if is_tls else "OFF ❌"
+
+    if active_proto in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"]:
+        if host and host != "N/A":
+            msg_lines.append(f"📍 ADDRESS : {html_escape(host)}")
+        if uuid:
+            msg_lines.append(f"🔑 UUID    : {html_escape(uuid)}")
+        elif password:
+            msg_lines.append(f"🔑 PASSWORD: {html_escape(password)}")
+        if ws_host:
+            msg_lines.append(f"🌐 HOST    : {html_escape(ws_host)}")
+        if ws_path:
+            msg_lines.append(f"📁 PATH    : {html_escape(ws_path)}")
+        msg_lines.append(f"🔌 PORT    : {port}")
+        msg_lines.append(f"🛡️ TLS     : {tls_str}")
+        msg_lines.append(f"🚦 TRANSPORT: {html_escape(network)}")
+        msg_lines.append(f"🔒 SECURITY: {html_escape(tls_security or 'none')}")
+        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+        if proxy_val:
+            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
+        if sni and sni != ws_host and sni != "None":
+            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+
+    elif active_proto == "SSH":
+        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
+        msg_lines.append(f"🔌 PORT    : {port}")
+        if username:
+            msg_lines.append(f"👤 USER    : {html_escape(username)}")
+        if password:
+            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
+        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+        if proxy_val:
+            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
+        if sni and sni != "None":
+            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+
+    else:
+        # Fallback generic info
+        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
+        msg_lines.append(f"🔌 PORT    : {port}")
+        if username:
+            msg_lines.append(f"👤 USER    : {html_escape(username)}")
+        if password:
+            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
+        if sni and sni != "None":
+            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+
+    # Custom Payload block
+    if custom_payload and custom_payload.strip() and not custom_payload.strip().startswith("{"):
+        msg_lines.extend([
+            "",
+            "📦 PAYLOAD:",
+            html_escape(custom_payload.strip()[:1000])
+        ])
+
+    # Ready Link block
+    ready_link = v2ray_link
+    if active_proto == "SSH" and host and username:
+        ready_link = f"{host}:{port}@{username}:{password}"
+
+    if ready_link:
+        msg_lines.extend([
+            "",
+            "────────────────────────",
+            "🔐 SSH READY LINK:" if active_proto == "SSH" else "🔗 READY LINK:",
+            "────────────────────────",
+            "",
+            f"<code>{ready_link}</code>"
+        ])
+
+    # Notes & Expiry
+    if expiry_str:
+        msg_lines.extend([
+            "",
+            f"⏳ EXPIRY  : {html_escape(expiry_str)}"
+        ])
+
+    if notes and notes.strip() and notes.strip() != "None":
+        msg_lines.extend([
+            "",
+            f"📝 NOTE    : {html_escape(notes.strip())}"
+        ])
+
+    styled_message = "\n".join(msg_lines)
 
     return {
-        "txt_content": txt_content,
-        "protocol": protocol,
+        "styled_message": styled_message,
+        "protocol": active_proto,
         "server_host": host,
         "server_port": port,
         "creator": creator,
         "name": name,
         "version": f"v{container_version} ({key_scheme})",
         "total_profiles": len(profiles),
-        "notes": notes.strip()
+        "notes": notes.strip() if notes else "None"
     }
 
 
@@ -259,5 +436,5 @@ if __name__ == "__main__":
     test_file = sys.argv[1] if len(sys.argv) > 1 else "/home/foridul/Downloads/Telegram Desktop/AISO.hc"
     with open(test_file, "rb") as f:
         res = decrypt_hc_file(f.read())
-        print(res["txt_content"][:600])
-        print("\n[+] Decrypted successfully!")
+        print(res["styled_message"])
+        print("\n[+] Direct styled message tested successfully!")
