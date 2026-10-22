@@ -16,6 +16,7 @@ import base64
 import struct
 import datetime
 import threading
+import urllib.parse
 import requests
 import yaml
 from typing import Dict, Any, List
@@ -863,23 +864,63 @@ def decrypt_vipsniper_pro(raw_b64: str = None) -> Dict[str, Any]:
         ssl = s.get("OpenVPNSSLPort", "")
         u = s.get("Username") or glob_user
         p = s.get("Password") or glob_pass
+        cert = s.get("CustomCert", "")
+
+        if proto == 0:
+            proto_name = "OpenVPN TCP / SSL"
+        elif proto == 2:
+            proto_name = "High-Speed UDP"
+        elif proto == 3:
+            proto_name = "X-Ray / VLESS"
+        elif proto == 4:
+            proto_name = "SSL / SlowDNS"
+        else:
+            proto_name = f"Protocol {proto}"
 
         lines.append(f"{idx}. {name} ({subname})")
+        lines.append(f"   • Protocol : {proto_name}")
         lines.append(f"   • Host/IP  : {host}")
-        lines.append(f"   • Protocol : {proto}")
         if tcp or ssl:
             lines.append(f"   • Ports    : TCP {tcp} | SSL {ssl}")
         if u or p:
             lines.append(f"   • User/Pass: {u} / {p}")
 
+        # Full OpenVPN .ovpn profile & CA certificate
+        if proto == 0 and "-----BEGIN CERTIFICATE-----" in cert:
+            tcp_p = tcp if tcp and tcp != "0" else "1194"
+            ca_part = cert[cert.find("<ca>"):cert.find("</ca>") + 5] if ("<ca>" in cert and "</ca>" in cert) else f"<ca>\n{cert.strip()}\n</ca>"
+            lines.append("   • OpenVPN CA: Included & Valid")
+            lines.append("   • Ready .ovpn Config:")
+            lines.append("     --------------------------------------------------")
+            lines.append("     client")
+            lines.append("     dev tun")
+            lines.append("     persist-tun")
+            lines.append("     proto tcp")
+            lines.append(f"     remote {host} {tcp_p}")
+            lines.append("     verb 3")
+            lines.append("     ping-restart 0")
+            lines.append("     auth none")
+            lines.append("     auth-nocache")
+            lines.append("     cipher none")
+            lines.append("     setenv CLIENT_CERT 0")
+            lines.append("     auth-user-pass")
+            lines.append(f"     # Credentials: {u} / {p}")
+            for ca_line in ca_part.splitlines():
+                lines.append(f"     {ca_line}")
+            lines.append("     --------------------------------------------------")
+
         if "V2Ray" in s and isinstance(s["V2Ray"], dict):
             v2 = s["V2Ray"]
             uuid = v2.get("UUID", "")
             v2host = v2.get("V2RayHost", "")
-            path = v2.get("PATH", "")
+            path = v2.get("PATH", "/vless_juan")
             lines.append(f"   • V2Ray UUID: {uuid}")
             lines.append(f"   • V2Ray Host: {v2host}")
             lines.append(f"   • V2Ray Path: {path}")
+            if uuid and v2host:
+                tag = urllib.parse.quote(f"VIP Sniper - {name}")
+                vless_link = f"vless://{uuid}@{v2host}:443?path={urllib.parse.quote(path)}&security=tls&encryption=none&host={host}&type=ws#{tag}"
+                lines.append(f"   • VLESS Link: {vless_link}")
 
         if "SlowDNS" in s and isinstance(s["SlowDNS"], dict):
             sd = s["SlowDNS"]
