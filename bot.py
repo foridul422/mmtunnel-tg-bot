@@ -41,7 +41,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v3.3 - Sensei Tunnel & VIP Sniper Pro Ready) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v3.4 - Sensei, VIP Sniper & IZPH VPN PRO Ready) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -1171,6 +1171,493 @@ def decrypt_sensei_tunnel_live() -> Dict[str, Any]:
     return result
 
 
+# ================= IZPH VPN PRO DECRYPTION ENGINE =================
+IZPH_DATA_27D878 = bytes.fromhex('8968cb6e895105be625839ad9b9ba6ace8dcd4413d7c5ecfaa1069413ffeb044')
+IZPH_IV_27D898   = bytes.fromhex('49e59fdf67eb479ce8b96c24d2495bd1')
+IZPH_SALT_16     = bytes.fromhex('c27fd7bee17196d650530886cf4c24f5')
+IZPH_FIXED_SALT  = bytes.fromhex('c27fd7bee17196d650530886cf4c24f52cac5abb8bff6ad3a48ebb10f4b1f632')
+IZPH_KEY_16      = hashlib.sha256(IZPH_DATA_27D878).digest()[:16]
+
+IZPH_THREEFISH_KEY = HKDF(algorithm=hashes.SHA256(), length=32, salt=IZPH_FIXED_SALT, info=b'', backend=default_backend()).derive(IZPH_DATA_27D878)
+IZPH_AES_KEY_MODE1 = HKDF(algorithm=hashes.SHA256(), length=16, salt=IZPH_SALT_16, info=b'', backend=default_backend()).derive(IZPH_DATA_27D878)
+IZPH_PBKDF2_KEY    = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=IZPH_FIXED_SALT, iterations=100000, backend=default_backend()).derive(IZPH_DATA_27D878)
+IZPH_KEY_WORDS     = struct.unpack('<4Q', IZPH_THREEFISH_KEY)
+
+IZPH_C240 = 0x1BD11BDAA9FC1A22
+IZPH_MASK64 = 0xFFFFFFFFFFFFFFFF
+IZPH_ROT = [
+    [14, 16], [52, 57], [23, 40], [5, 37],
+    [25, 33], [46, 12], [58, 22], [32, 32]
+]
+IZPH_DELTA = 0x7a56d3e1
+IZPH_MASK32 = 0xffffffff
+
+IZPH_LIVE_ENDPOINTS = [
+    ("izphvpn2027", "https://raw.githubusercontent.com/kiranoble/config/main/izphvpn2027"),
+    ("izph49", "https://raw.githubusercontent.com/kiranoble/config/main/izph49"),
+    ("izphv18", "https://raw.githubusercontent.com/kiranoble/config/main/izphv18"),
+    ("izph2026", "https://raw.githubusercontent.com/kiranoble/config/main/izph2026"),
+]
+
+IZPH_CACHED_DATA = None
+IZPH_CACHE_TIMESTAMP = 0
+IZPH_CACHE_TTL = 300
+
+
+def _izph_bytes_to_words(b: bytes):
+    n = (len(b) + 3) // 4
+    words = [0] * n
+    for i, byte in enumerate(b):
+        words[i // 4] |= (byte & 0xff) << ((i % 4) * 8)
+    return words
+
+
+def _izph_words_to_bytes(words):
+    total_len = words[-1]
+    max_bytes = (len(words) - 1) * 4
+    if total_len > max_bytes or total_len < max_bytes - 7:
+        total_len = len(words) * 4
+    res = bytearray()
+    for i in range(total_len):
+        if i // 4 < len(words):
+            res.append((words[i // 4] >> ((i % 4) * 8)) & 0xff)
+    return bytes(res)
+
+
+def _izph_mx(sum_val, y, z, p, e, k):
+    part1 = ((sum_val ^ y) + (k[(p & 3) ^ e] ^ z)) & IZPH_MASK32
+    part2 = (((z >> 5 ^ (y << 2) & IZPH_MASK32)) + ((y >> 3 ^ (z << 4) & IZPH_MASK32))) & IZPH_MASK32
+    return (part1 ^ part2) & IZPH_MASK32
+
+
+def _izph_xxtea_decrypt(data_bytes: bytes, key_bytes: bytes) -> bytes:
+    v = _izph_bytes_to_words(data_bytes)
+    k_raw = bytearray(key_bytes[:16].ljust(16, b'\x00'))
+    for idx, b in enumerate(k_raw):
+        if b == 0:
+            for j in range(idx, 16):
+                k_raw[j] = 0
+            break
+    k = _izph_bytes_to_words(k_raw)[:4]
+    n = len(v)
+    if n <= 1:
+        return data_bytes
+    rounds = 6 + 52 // n
+    sum_val = (rounds * IZPH_DELTA) & IZPH_MASK32
+    y = v[0]
+    while sum_val != 0:
+        e = (sum_val >> 2) & 3
+        for p in range(n - 1, 0, -1):
+            z = v[p - 1]
+            y = (v[p] - _izph_mx(sum_val, y, z, p, e, k)) & IZPH_MASK32
+            v[p] = y
+        z = v[n - 1]
+        y = (v[0] - _izph_mx(sum_val, y, z, 0, e, k)) & IZPH_MASK32
+        v[0] = y
+        sum_val = (sum_val - IZPH_DELTA) & IZPH_MASK32
+    return _izph_words_to_bytes(v)
+
+
+def izph_decrypt_outer(raw_b64: str) -> str:
+    """Outer Config JSON: AES-128-CBC + XXTEA + byte shift (-2)."""
+    cipher_bytes = base64.b64decode(raw_b64.strip())
+    cipher = Cipher(algorithms.AES(IZPH_KEY_16), modes.CBC(IZPH_IV_27D898), backend=default_backend())
+    decryptor = cipher.decryptor()
+    aes_dec = decryptor.update(cipher_bytes) + decryptor.finalize()
+    pad_len = aes_dec[-1]
+    if 1 <= pad_len <= 16:
+        aes_dec = aes_dec[:-pad_len]
+    tea = _izph_xxtea_decrypt(aes_dec, IZPH_KEY_16)
+    final = bytearray((b - 2) & 0xff for b in tea)
+    return final.decode('utf-8', errors='replace')
+
+
+def izph_decrypt_mode0(b64_str: str) -> str:
+    """Mode 0: Name, Ports, flag, CustomCert, UUID, PubKey."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        cipher = Cipher(algorithms.AES(IZPH_KEY_16), modes.CBC(IZPH_IV_27D898), backend=default_backend())
+        decryptor = cipher.decryptor()
+        aes_dec = decryptor.update(cipher_bytes) + decryptor.finalize()
+        pad_len = aes_dec[-1]
+        if 1 <= pad_len <= 16:
+            aes_dec = aes_dec[:-pad_len]
+        tea = _izph_xxtea_decrypt(aes_dec, IZPH_KEY_16)
+        final = bytearray((b - 2) & 0xff for b in tea)
+        return final.decode('utf-8', errors='replace')
+    except Exception:
+        return b64_str
+
+
+def _izph_ror64(x, n):
+    return ((x >> n) | (x << (64 - n))) & IZPH_MASK64
+
+
+def _izph_threefish_decrypt_block(block_bytes, key_words, tweak_words):
+    v = list(struct.unpack('<4Q', block_bytes))
+    k = list(key_words)
+    k.append(IZPH_C240 ^ k[0] ^ k[1] ^ k[2] ^ k[3])
+    t = list(tweak_words)
+    t.append(t[0] ^ t[1])
+    x6, x4, x5, x7 = v[0], v[1], v[2], v[3]
+    s = 18
+    x6 = (x6 - k[s % 5]) & IZPH_MASK64
+    x4 = (x4 - (k[(s + 1) % 5] + t[s % 3])) & IZPH_MASK64
+    x5 = (x5 - (k[(s + 2) % 5] + t[(s + 1) % 3])) & IZPH_MASK64
+    x7 = (x7 - (k[(s + 3) % 5] + s)) & IZPH_MASK64
+    for r in range(71, -1, -1):
+        rot = IZPH_ROT[r % 8]
+        if r % 2 == 1:
+            x7 = (x7 ^ x6)
+            x4 = (x4 ^ x5)
+            x7 = _izph_ror64(x7, rot[0])
+            x4 = _izph_ror64(x4, rot[1])
+            x6 = (x6 - x7) & IZPH_MASK64
+            x5 = (x5 - x4) & IZPH_MASK64
+        else:
+            x4 = (x4 ^ x6)
+            x7 = (x7 ^ x5)
+            x4 = _izph_ror64(x4, rot[0])
+            x7 = _izph_ror64(x7, rot[1])
+            x6 = (x6 - x4) & IZPH_MASK64
+            x5 = (x5 - x7) & IZPH_MASK64
+        if r % 4 == 0:
+            s = r // 4
+            x6 = (x6 - k[s % 5]) & IZPH_MASK64
+            x4 = (x4 - (k[(s + 1) % 5] + t[s % 3])) & IZPH_MASK64
+            x5 = (x5 - (k[(s + 2) % 5] + t[(s + 1) % 3])) & IZPH_MASK64
+            x7 = (x7 - (k[(s + 3) % 5] + s)) & IZPH_MASK64
+    return struct.pack('<4Q', x6, x4, x5, x7)
+
+
+def izph_decrypt_mode1(b64_str: str) -> str:
+    """Mode 1: ServerIPHost, SNIHost, Payload, V2RayHost, PATH."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        if len(cipher_bytes) % 8 != 0:
+            return b64_str
+        rem = len(cipher_bytes) % 32
+        if rem != 0:
+            cipher_bytes += b'\x00' * (32 - rem)
+        dec_blocks = bytearray()
+        for i in range(0, len(cipher_bytes), 32):
+            block = cipher_bytes[i:i + 32]
+            block_idx = i // 32
+            tweak = (block_idx, block_idx * 0x40)
+            dec_blocks.extend(_izph_threefish_decrypt_block(block, IZPH_KEY_WORDS, tweak))
+        dec_trimmed = dec_blocks.rstrip(b'\x00')
+        if len(dec_trimmed) == 0:
+            return b64_str
+        cipher = Cipher(algorithms.AES(IZPH_AES_KEY_MODE1), modes.CBC(IZPH_IV_27D898), backend=default_backend())
+        decryptor = cipher.decryptor()
+        aes_dec = decryptor.update(dec_trimmed) + decryptor.finalize()
+        pad_len = aes_dec[-1]
+        if 1 <= pad_len <= 16:
+            aes_dec = aes_dec[:-pad_len]
+        return aes_dec.decode('utf-8', errors='replace')
+    except Exception:
+        return b64_str
+
+
+def izph_decrypt_mode2(b64_str: str) -> str:
+    """Mode 2: Username & Password."""
+    if not b64_str or not isinstance(b64_str, str):
+        return b64_str or ''
+    try:
+        cipher_bytes = base64.b64decode(b64_str.strip())
+        xxtea_out = _izph_xxtea_decrypt(cipher_bytes, IZPH_PBKDF2_KEY[:16])
+        iv = xxtea_out[:16]
+        ct = xxtea_out[16:]
+        cipher = Cipher(algorithms.AES(IZPH_PBKDF2_KEY), modes.CBC(iv), backend=default_backend())
+        dec = cipher.decryptor()
+        aes_dec = dec.update(ct) + dec.finalize()
+        pad = aes_dec[-1]
+        if 1 <= pad <= 16:
+            aes_dec = aes_dec[:-pad]
+        return aes_dec.decode('utf-8', errors='replace').strip()
+    except Exception:
+        return b64_str
+
+
+def fetch_izph_live():
+    headers = {"User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; Build/QP1A.190711.020)"}
+    for name, url in IZPH_LIVE_ENDPOINTS:
+        try:
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200 and len(r.text.strip()) > 1000:
+                return r.text.strip(), f"Live GitHub ({name})"
+        except Exception:
+            continue
+    return None, None
+
+
+def decrypt_izph_vpn_pro_live(raw_b64: str = None) -> Dict[str, Any]:
+    global IZPH_CACHED_DATA, IZPH_CACHE_TIMESTAMP
+    now = time.time()
+    if not raw_b64 and IZPH_CACHED_DATA and (now - IZPH_CACHE_TIMESTAMP < IZPH_CACHE_TTL):
+        return IZPH_CACHED_DATA
+
+    source_name = "Live Cloud API"
+    if not raw_b64:
+        raw_b64, src = fetch_izph_live()
+        if src:
+            source_name = src
+        else:
+            local_fallbacks = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "e.rj"),
+                "/home/foridul/.gemini/antigravity-ide/scratch/izph_vpn/e.rj",
+            ]
+            for p in local_fallbacks:
+                if os.path.exists(p):
+                    with open(p, "r", encoding="utf-8") as f:
+                        raw_b64 = f.read().strip()
+                        source_name = f"Local APK Asset ({os.path.basename(p)})"
+                        break
+    if not raw_b64:
+        raise ValueError("Could not fetch or locate IZPH VPN PRO encrypted config.")
+
+    t0 = time.time()
+    outer_str = izph_decrypt_outer(raw_b64)
+    data = json.loads(outer_str)
+    version = data.get("Version", "1.0.0")
+
+    glob_user = izph_decrypt_mode2(data.get("Username")) or "izphy"
+    glob_pass = izph_decrypt_mode2(data.get("Password")) or "izphy"
+
+    all_servers = []
+    for s in data.get("Servers", []):
+        s_dec = {}
+        for k, v in s.items():
+            if k == "ServerIPHost":
+                s_dec[k] = izph_decrypt_mode1(v)
+            elif k in ["Username", "Password"]:
+                s_dec[k] = izph_decrypt_mode2(v) or (glob_user if k == "Username" else glob_pass)
+            elif k in ["Name", "Subname", "OpenVPNTCPPort", "OpenVPNSSLPort", "CustomCert", "ServerCert", "flag"]:
+                s_dec[k] = izph_decrypt_mode0(v)
+            elif k == "V2Ray" and isinstance(v, dict):
+                v2 = {}
+                for vk, vv in v.items():
+                    if vk in ["V2RayHost", "PATH"]:
+                        v2[vk] = izph_decrypt_mode1(vv)
+                    elif vk in ["UUID", "DNSMode"]:
+                        v2[vk] = izph_decrypt_mode0(vv)
+                    else:
+                        v2[vk] = vv
+                s_dec[k] = v2
+            elif k == "SlowDNS" and isinstance(v, dict):
+                sd = {}
+                for sdk, sdv in v.items():
+                    if sdk in ["NSNameServer", "PubKey"]:
+                        sd[sdk] = izph_decrypt_mode0(sdv)
+                    else:
+                        sd[sdk] = sdv
+                s_dec[k] = sd
+            else:
+                s_dec[k] = v
+        all_servers.append(s_dec)
+
+    all_networks = []
+    for n in data.get("Networks", []):
+        n_dec = {}
+        for k, v in n.items():
+            if k in ["SNIHost", "Payload"]:
+                n_dec[k] = izph_decrypt_mode1(v)
+            elif k in ["Name", "Info", "TLSVersion", "SSCommand"]:
+                n_dec[k] = izph_decrypt_mode0(v)
+            elif k == "ProxySettings" and isinstance(v, dict):
+                px = {}
+                for pk, pv in v.items():
+                    px[pk] = izph_decrypt_mode0(pv)
+                n_dec[k] = px
+            else:
+                n_dec[k] = v
+        all_networks.append(n_dec)
+
+    elapsed = time.time() - t0
+
+    # Categorize servers
+    ovpn_servers = [s for s in all_servers if s.get("Protocol") == 0]
+    udp_servers = [s for s in all_servers if s.get("Protocol") == 2]
+    v2ray_servers = [s for s in all_servers if s.get("Protocol") == 4]
+    slowdns_servers = [s for s in all_servers if s.get("Protocol") == 5]
+    other_servers = [s for s in all_servers if s.get("Protocol") not in (0, 2, 4, 5)]
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S 🇧🇩")
+    report = []
+    report.append("=============================================================================")
+    report.append("  IZPH VPN PRO - READY-TO-USE FULL SERVERS (LIVE DECRYPTED)")
+    report.append("  By               : @Foridul_002 🇧🇩")
+    report.append(f"  Target App       : IZPH VPN PRO (com.izphprov2.net)")
+    report.append(f"  Config Version   : {version}")
+    report.append(f"  Source           : {source_name}")
+    report.append(f"  Date & Time      : {now_str}")
+    report.append(f"  Total Servers    : {len(all_servers)}")
+    report.append(f"  Total Networks   : {len(all_networks)}")
+    report.append(f"  Decryption Speed : {elapsed:.3f} seconds (Zero Filter)")
+    report.append("=============================================================================\n")
+
+    # 1. OpenVPN
+    if ovpn_servers:
+        report.append("=============================================================================")
+        report.append(f"  [CATEGORY 1] 🌐 OPENVPN SERVERS (TCP / SSL) — [{len(ovpn_servers)} SERVERS]")
+        report.append("=============================================================================")
+        for idx, s in enumerate(ovpn_servers, 1):
+            name = s.get("Name", f"OpenVPN Server {idx}")
+            sub = s.get("Subname", "")
+            host = s.get("ServerIPHost", "")
+            tcp = s.get("OpenVPNTCPPort", "")
+            ssl = s.get("OpenVPNSSLPort", "")
+            u = s.get("Username") or glob_user
+            p = s.get("Password") or glob_pass
+            cert = s.get("CustomCert", "")
+            flag = s.get("flag", "")
+            has_ca = "YES (Included in CA block)" if "-----BEGIN CERTIFICATE-----" in cert else "Default App CA"
+
+            report.append(f"{idx:02d}. {name} {f'({sub})' if sub else ''}")
+            report.append(f"    • Server IP/Host : {host}")
+            report.append(f"    • Protocol       : OpenVPN TCP {tcp} | SSL {ssl}")
+            report.append(f"    • Username       : {u}")
+            report.append(f"    • Password       : {p}")
+            report.append(f"    • Country / Flag : {flag.upper() if flag else 'N/A'}")
+            report.append(f"    • CA Certificate : {has_ca}")
+            report.append("")
+
+    # 2. UDP
+    if udp_servers:
+        report.append("=============================================================================")
+        report.append(f"  [CATEGORY 2] ⚡ HIGH-SPEED UDP SERVERS — [{len(udp_servers)} SERVERS]")
+        report.append("=============================================================================")
+        for idx, s in enumerate(udp_servers, 1):
+            name = s.get("Name", f"UDP Server {idx}")
+            host = s.get("ServerIPHost", "")
+            u = s.get("Username") or glob_user
+            p = s.get("Password") or glob_pass
+            report.append(f"{idx:02d}. {name}")
+            report.append(f"    • Server Host    : {host}")
+            report.append(f"    • Protocol       : High-Speed Custom UDP")
+            report.append(f"    • Username       : {u}")
+            report.append(f"    • Password       : {p}")
+            report.append("")
+
+    # 3. V2Ray / VLESS
+    if v2ray_servers:
+        report.append("=============================================================================")
+        report.append(f"  [CATEGORY 3] 🚀 V2RAY / VLESS / VMESS SERVERS — [{len(v2ray_servers)} SERVERS]")
+        report.append("=============================================================================")
+        for idx, s in enumerate(v2ray_servers, 1):
+            name = s.get("Name", f"V2Ray Server {idx}")
+            v2 = s.get("V2Ray", {})
+            vhost = v2.get("V2RayHost") or s.get("ServerIPHost", "")
+            uuid = v2.get("UUID", "")
+            path = v2.get("PATH", "/")
+            tag = urllib.parse.quote(f"IZPH PRO - {name}")
+            link = f"vless://{uuid}@{vhost}:443?encryption=none&security=tls&type=ws&host={vhost}&path={urllib.parse.quote(path)}#{tag}"
+            report.append(f"{idx:02d}. {name}")
+            report.append(f"    • Host / SNI     : {vhost}")
+            report.append(f"    • UUID           : {uuid}")
+            report.append(f"    • WS Path        : {path}")
+            report.append(f"    • 1-Click Link   : {link}")
+            report.append("")
+
+    # 4. SlowDNS
+    if slowdns_servers:
+        report.append("=============================================================================")
+        report.append(f"  [CATEGORY 4] 📡 SLOWDNS SERVERS — [{len(slowdns_servers)} SERVERS]")
+        report.append("=============================================================================")
+        for idx, s in enumerate(slowdns_servers, 1):
+            name = s.get("Name", f"SlowDNS Server {idx}")
+            host = s.get("ServerIPHost", "")
+            sd = s.get("SlowDNS", {})
+            ns = sd.get("NSNameServer", "")
+            pub = sd.get("PubKey", "")
+            report.append(f"{idx:02d}. {name}")
+            report.append(f"    • Server Host    : {host}")
+            report.append(f"    • NS NameServer  : {ns}")
+            report.append(f"    • Public Key     : {pub}")
+            report.append("")
+
+    # 5. Other Servers
+    if other_servers:
+        report.append("=============================================================================")
+        report.append(f"  [CATEGORY 5] 🛡️ OTHER PROTOCOL SERVERS — [{len(other_servers)} SERVERS]")
+        report.append("=============================================================================")
+        for idx, s in enumerate(other_servers, 1):
+            name = s.get("Name", f"Server {idx}")
+            host = s.get("ServerIPHost", "")
+            proto = s.get("Protocol")
+            report.append(f"{idx:02d}. {name} (Protocol {proto}) | Host: {host}")
+
+    # 6. Networks / Payloads / Tweaks (Raw & Unfiltered)
+    report.append("=============================================================================")
+    report.append(f"  [CATEGORY 6] 📦 ALL NETWORKS, PAYLOADS & TWEAKS — [{len(all_networks)} TWEAKS]")
+    report.append("=============================================================================")
+    for idx, n in enumerate(all_networks, 1):
+        n_name = n.get("Name", f"Tweak {idx}")
+        sni = n.get("SNIHost", "")
+        payload = n.get("Payload", "")
+        info = n.get("Info", "")
+        tls = n.get("TLSVersion", "Default")
+        px = n.get("ProxySettings", {})
+        px_squid = px.get("Squid", "") if isinstance(px, dict) else ""
+        px_port = px.get("Port", "") if isinstance(px, dict) else ""
+
+        report.append(f"{idx:03d}. {n_name}")
+        if info:
+            report.append(f"     • Info         : {info}")
+        if sni:
+            report.append(f"     • SNI Host     : {sni}")
+        if px_squid:
+            report.append(f"     • Proxy / Port : {px_squid}:{px_port}")
+        if tls:
+            report.append(f"     • TLS Version  : {tls}")
+        if payload:
+            clean_pl = payload.replace("\n", "\\n").replace("\r", "")
+            report.append(f"     • Raw Payload  : {clean_pl}")
+        report.append("")
+
+    # Appended Full Raw JSON for complete programmatic fidelity
+    report.extend([
+        "=============================================================================",
+        "  FULL DECRYPTED CONFIG (RAW JSON)",
+        "=============================================================================",
+        json.dumps({
+            "Version": version,
+            "Global_Username": glob_user,
+            "Global_Password": glob_pass,
+            "Servers": all_servers,
+            "Networks": all_networks
+        }, indent=2, ensure_ascii=False),
+        "",
+        "=============================================================================",
+        "  END OF FILE — By: @Foridul_002 🇧🇩",
+        "============================================================================="
+    ])
+
+    full_txt = "\n".join(report)
+    result = {
+        "txt_content": full_txt,
+        "version": version,
+        "source": source_name,
+        "glob_user": glob_user,
+        "glob_pass": glob_pass,
+        "total_servers": len(all_servers),
+        "total_networks": len(all_networks),
+        "servers": all_servers,
+        "networks": all_networks,
+        "elapsed": elapsed
+    }
+
+    if not raw_b64:
+        IZPH_CACHED_DATA = result
+        IZPH_CACHE_TIMESTAMP = now
+
+    return result
+
+
 # ================= TELEGRAM BOT LOGIC =================
 def start_bot():
     if not BOT_TOKEN:
@@ -1187,7 +1674,8 @@ def start_bot():
             InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
             InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
             InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
-            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei")
+            InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
+            InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph")
         )
         
         user_name = message.from_user.first_name or "User"
@@ -1212,6 +1700,7 @@ def start_bot():
                 InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
                 InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
                 InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
+                InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
                 InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main")
             )
             bot.edit_message_text(
@@ -1482,6 +1971,67 @@ def start_bot():
             except Exception as e:
                 bot.edit_message_text(
                     f"❌ <b>Sensei Tunnel Decryption Failed!</b>\nError: <code>{e}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
+
+        elif call.data == "dec_izph":
+            bot.answer_callback_query(call.id, "⏳ Decrypting IZPH VPN PRO Config...")
+
+            status_msg = bot.send_message(
+                chat_id,
+                "⏳ <b>Fetching & Decrypting IZPH VPN PRO...</b>\n"
+                "📡 Connecting to Live GitHub API Repository (kiranoble/config)...\n"
+                "🔐 Breaking 3-Layer Native Crypto (Threefish-256 + XXTEA + AES-128-CBC)...\n"
+                "Please wait a few seconds."
+            )
+
+            try:
+                res = decrypt_izph_vpn_pro_live()
+                txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
+                txt_bytes.name = "IZPH_VPN_PRO_Live_Decrypted.txt"
+
+                version = res["version"]
+                glob_user = res["glob_user"]
+                glob_pass = res["glob_pass"]
+                total_servers = res["total_servers"]
+                total_networks = res["total_networks"]
+
+                # Server preview (first 4 servers)
+                server_preview = ""
+                for idx, s in enumerate(res["servers"][:4], 1):
+                    name = s.get("Name", f"Server {idx}")
+                    host = s.get("ServerIPHost", "")
+                    server_preview += f"  {idx}. {name}\n     → <code>{host}</code>\n"
+
+                caption = (
+                    "✅ <b>IZPH VPN PRO 100% Fully Decrypted!</b>\n\n"
+                    f"📦 <b>Version:</b> <code>{version}</code>\n"
+                    f"🔐 <b>Username:</b> <code>{glob_user}</code>\n"
+                    f"🔑 <b>Password:</b> <code>{glob_pass}</code>\n"
+                    f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
+                    f"📡 <b>Total Networks:</b> <code>{total_networks}</code>\n"
+                    "⚡ <b>Filter:</b> <code>NONE (100% Raw Live API Data)</code>\n\n"
+                    "<b>🚀 Server Preview:</b>\n"
+                    f"{server_preview}\n"
+                    "🔓 <b>Crypto Layers Broken:</b>\n"
+                    "  • Mode 0: AES-128-CBC + XXTEA (δ=0x7a56d3e1)\n"
+                    "  • Mode 1: Threefish-256 (72 rounds) + AES-128-CBC\n"
+                    "  • Mode 2: XXTEA + AES-256-CBC (PBKDF2 100K)\n\n"
+                    "📁 <i>Complete decrypted servers, OpenVPN configs, UDP, VLESS links, and raw payloads attached.</i>\n\n"
+                    "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+                )
+
+                bot.send_document(
+                    chat_id,
+                    txt_bytes,
+                    caption=caption
+                )
+                bot.delete_message(chat_id, status_msg.message_id)
+
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>IZPH VPN PRO Decryption Failed!</b>\nError: <code>{e}</code>",
                     chat_id=chat_id,
                     message_id=status_msg.message_id
                 )
