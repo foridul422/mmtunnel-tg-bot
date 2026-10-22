@@ -41,7 +41,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v3.2 - VIP Sniper Pro Ready) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v3.3 - Sensei Tunnel & VIP Sniper Pro Ready) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
