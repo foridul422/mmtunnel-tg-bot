@@ -3,7 +3,8 @@
 =============================================================================
   HTTP INJECTOR (.ehi) DECRYPTION ENGINE
   By         : @Foridul_002 🇧🇩
-  Supports   : SSH, DNSTT, V2Ray (VMess/VLESS), Direct & Proxy Payloads
+  Supports   : SSH, DNSTT, V2Ray (VMess/VLESS/Trojan/Shadowsocks), Direct & Proxy Payloads
+  Zero-Filter: Extracts 100% of server details, credentials, payloads & ready links.
 =============================================================================
 """
 
@@ -114,17 +115,22 @@ class EHIDecryptor:
 
     @staticmethod
     def _decode_inner_fields(parsed_json: Dict[str, Any], salt_key: str) -> Dict[str, Any]:
+        """
+        Decrypts XOR fields. If decryption fails or value is already plaintext,
+        CRITICAL: NEVER drop the field! Always preserve original value.
+        """
         cleaned_json = {}
-        vital_keys = {"overwriteServerData"}
-        
         for k, v in parsed_json.items():
             if isinstance(v, str) and v.strip():
-                decrypted_val = EHIDecryptor._decode_config_message(v) if k == "configMessage" else EHIDecryptor._decrypt_xor_layer(v, salt_key)
-                    
-                if decrypted_val is not None:
-                    cleaned_json[k] = decrypted_val
-                elif k in vital_keys:
-                    cleaned_json[k] = v
+                if k == "configMessage":
+                    cleaned_json[k] = EHIDecryptor._decode_config_message(v)
+                else:
+                    decrypted_val = EHIDecryptor._decrypt_xor_layer(v, salt_key)
+                    if decrypted_val is not None:
+                        cleaned_json[k] = decrypted_val
+                    else:
+                        # Fallback to original value: do not discard unencrypted or plain fields!
+                        cleaned_json[k] = v
             else:
                 cleaned_json[k] = v
         return cleaned_json
@@ -224,84 +230,135 @@ class EHIDecryptor:
             return None 
 
         target_salt = config.get('configSalt', "EVZJNI")
+        parsed_final = None
 
         if matched_iv in EHIConstants.BYPASS_IVS:
             parsed_final = config
         else:
             target_data = config.get('configData')
-            if not target_data or not (aaa_result := cls._decrypt_xor_layer(target_data, target_salt)):
-                return None
+            if target_data:
+                aaa_result = cls._decrypt_xor_layer(target_data, target_salt)
+                if aaa_result:
+                    with contextlib.suppress(Exception):
+                        raw_payload = base64.b64decode(aaa_result)
+                        if len(raw_payload) > 50:
+                            argon_key = hash_secret_raw(
+                                secret=cls._generate_master_key(config), 
+                                salt=raw_payload[0x0a:0x1a], 
+                                time_cost=int.from_bytes(raw_payload[1:5], "little"),
+                                memory_cost=int.from_bytes(raw_payload[5:9], "little"), 
+                                parallelism=raw_payload[9],
+                                hash_len=32, 
+                                type=Type.ID
+                            )
 
-            raw_payload = base64.b64decode(aaa_result)
-            if len(raw_payload) <= 50:
-                return None 
+                            cipher3 = ChaCha20_Poly1305.new(key=argon_key, nonce=raw_payload[0x1a:0x32])
+                            cipher3.update(raw_payload[:0x1a]) # AAD
+                            decrypted_json_bytes = cipher3.decrypt_and_verify(raw_payload[0x32:-16], raw_payload[-16:])
+                            parsed_final = json.loads(decrypted_json_bytes.decode('utf-8', errors='ignore'))
 
-            try:
-                argon_key = hash_secret_raw(
-                    secret=cls._generate_master_key(config), 
-                    salt=raw_payload[0x0a:0x1a], 
-                    time_cost=int.from_bytes(raw_payload[1:5], "little"),
-                    memory_cost=int.from_bytes(raw_payload[5:9], "little"), 
-                    parallelism=raw_payload[9],
-                    hash_len=32, 
-                    type=Type.ID
-                )
+        if not parsed_final:
+            parsed_final = config
 
-                cipher3 = ChaCha20_Poly1305.new(key=argon_key, nonce=raw_payload[0x1a:0x32])
-                cipher3.update(raw_payload[:0x1a]) # AAD
-                decrypted_json_bytes = cipher3.decrypt_and_verify(raw_payload[0x32:-16], raw_payload[-16:])
-                parsed_final = json.loads(decrypted_json_bytes.decode('utf-8', errors='ignore'))
-            except Exception:
-                return None
+        # Decode fields in outer config and inner parsed_final
+        cleaned_outer = cls._decode_inner_fields(config, target_salt) if config else {}
+        cleaned_inner = cls._decode_inner_fields(parsed_final, target_salt) if parsed_final else {}
 
-        cleaned_final_json = cls._decode_inner_fields(parsed_final, target_salt)
+        # Merge outer with inner: outer provides metadata (notes, expiry, proxies), inner provides server credentials
+        cleaned_final_json = dict(cleaned_outer)
+        cleaned_final_json.update(cleaned_inner)
         
-        for json_field in ("v2rRawJson", "overwriteServerData"):
-            if json_field in cleaned_final_json and isinstance(raw_str := cleaned_final_json[json_field], str):
-                try:
-                    if (start_idx := raw_str.find('{')) != -1 and (end_idx := raw_str.rfind('}')) != -1:
-                        parsed_obj = json.loads(raw_str[start_idx:end_idx+1], strict=False)
-                        cleaned_final_json[json_field] = json.loads(parsed_obj, strict=False) if isinstance(parsed_obj, str) else parsed_obj
-                except Exception as e:
-                    cleaned_final_json[f"{json_field}_PARSING_ERROR"] = str(e)
+        # Deep unpack JSON fields (v2rRawJson, overwriteServerData, serverData, etc.)
+        for json_field in ("v2rRawJson", "overwriteServerData", "serverData", "v2rayConfig"):
+            if json_field in cleaned_final_json:
+                val = cleaned_final_json[json_field]
+                if isinstance(val, str) and val.strip():
+                    raw_str = val.strip()
+                    try:
+                        if (start_idx := raw_str.find('{')) != -1 and (end_idx := raw_str.rfind('}')) != -1:
+                            parsed_obj = json.loads(raw_str[start_idx:end_idx+1], strict=False)
+                            cleaned_final_json[json_field] = json.loads(parsed_obj, strict=False) if isinstance(parsed_obj, str) else parsed_obj
+                    except Exception:
+                        with contextlib.suppress(Exception):
+                            b64_dec = base64.b64decode(raw_str).decode('utf-8', errors='ignore')
+                            if (start_idx := b64_dec.find('{')) != -1 and (end_idx := b64_dec.rfind('}')) != -1:
+                                cleaned_final_json[json_field] = json.loads(b64_dec[start_idx:end_idx+1], strict=False)
 
         return cleaned_final_json
+
+
+def _find_field(data: Dict[str, Any], *names: str, fallback: Any = "") -> Any:
+    """
+    Finds a field from a dictionary using exact case-insensitive matching.
+    Also searches inside nested dicts like overwriteServerData.
+    Prevents false-positive matches on concatenated honeypot keys.
+    """
+    for name in names:
+        lower_name = name.lower()
+        for k, v in data.items():
+            if k.lower() == lower_name and v not in (None, ""):
+                return v
+
+    ovr = data.get("overwriteServerData")
+    if isinstance(ovr, dict):
+        for name in names:
+            lower_name = name.lower()
+            for k, v in ovr.items():
+                if k.lower() == lower_name and v not in (None, ""):
+                    return v
+
+    return fallback
 
 
 def decrypt_ehi_file(file_bytes: bytes) -> Dict[str, Any]:
     """
     Decrypts an HTTP Injector (.ehi) file and produces a clean, styled Telegram message
-    without ANY filtering - extracting V2Ray, SSH, DNSTT, Remote Proxy, Payload, and all ready links.
+    without ANY filtering - extracting V2Ray (VMess/VLESS/Trojan/Shadowsocks), SSH, DNSTT,
+    Remote Proxy, Payload, and all ready links.
     """
     data = EHIDecryptor.parse_raw(file_bytes)
     if not data:
         raise ValueError("Failed to decrypt HTTP Injector file. Invalid format or unsupported encryption.")
 
-    # Extract base connection fields
+    # 1. Master tunnel type & JSON outbounds
+    tunnel_type = str(_find_field(data, "tunnelType", "tunnel_type", fallback="")).lower().strip()
     v2ray_data = data.get("v2rRawJson")
-    host = data.get("host") or data.get("sshHost") or data.get("serverData") or ""
-    port = data.get("port") or data.get("sshPort") or 443
-    user = data.get("user") or data.get("sshUser") or ""
-    password = data.get("password") or data.get("sshPass") or ""
-    remote_proxy = data.get("remoteProxy") or ""
-    payload = data.get("payload") or ""
-    sni = data.get("sniHostname") or data.get("sslSni") or ""
-    dnstt_ns = data.get("dnsttNameserver") or ""
-    dnstt_pub = data.get("dnsttPublicKey") or ""
-    config_msg = data.get("configMessage") or ""
+    has_v2ray_json = bool(v2ray_data and isinstance(v2ray_data, dict) and v2ray_data.get("outbounds"))
 
+    # 2. Discrete V2Ray parameters
+    v2r_proto_raw = str(_find_field(data, "v2rProtocol", fallback="")).lower().strip()
+    valid_v2r_protos = {"vmess", "vless", "trojan", "shadowsocks", "socks"}
+    v2r_proto = v2r_proto_raw if v2r_proto_raw in valid_v2r_protos else ""
+
+    v2r_userid = str(_find_field(data, "v2rUserId", "uuid", "userId", fallback="")).strip()
+    v2r_pass = str(_find_field(data, "v2rPassword", fallback="")).strip()
+    v2r_net = str(_find_field(data, "v2rNetwork", "network", fallback="ws")).lower().strip()
+    v2r_path = str(_find_field(data, "v2rWsPath", "v2rHttpPath", "wsPath", "path", fallback="/")).strip()
+    v2r_header = str(_find_field(data, "v2rWsHeader", "wsHeader", fallback="")).strip()
+    v2r_sni = str(_find_field(data, "v2rTlsSni", "sniHostname", "sslSni", "htrSni", fallback="")).strip()
+    v2r_sec = str(_find_field(data, "v2rTlsSecurityType", "v2rSecurity", "security", fallback="none")).lower().strip()
+
+    # Reality parameters
+    reality_pub = str(_find_field(data, "v2rTleRealityPublicKey", "realityPublicKey", fallback="")).strip()
+    reality_shortid = str(_find_field(data, "v2rTleRealityShortID", "realityShortId", fallback="")).strip()
+
+    # DNSTT parameters
+    dnstt_ns = str(_find_field(data, "dnsttNameserver", "dnstt_ns", fallback="")).strip()
+    dnstt_pub = str(_find_field(data, "dnsttPublicKey", "dnstt_pub", fallback="")).strip()
+
+    # Determine Protocol
     active_proto = "SSH"
-    uuid = ""
-    ws_host = ""
-    ws_path = "/"
-    network = "ws"
-    tls_security = "none"
-    is_tls = False
-    ready_links = []
+    uuid = v2r_userid
+    ws_host = v2r_header
+    ws_path = v2r_path if v2r_path else "/"
+    network = v2r_net if v2r_net else "ws"
+    tls_security = v2r_sec
+    sni = v2r_sni
+    host = ""
+    port = 0
 
-    # 1. Parse V2Ray if embedded in .ehi (supports vnext AND servers)
-    has_v2ray = bool(v2ray_data and isinstance(v2ray_data, dict) and v2ray_data.get("outbounds"))
-    if has_v2ray:
+    # Priority 1: JSON Outbounds
+    if has_v2ray_json:
         outbounds = v2ray_data.get("outbounds", [])
         for ob in outbounds:
             p = ob.get("protocol", "").lower()
@@ -317,7 +374,7 @@ def decrypt_ehi_file(file_bytes: bytes) -> Dict[str, Any]:
                 port = vnext[0].get("port") or port
                 users = vnext[0].get("users", [])
                 if users and isinstance(users, list):
-                    uuid = users[0].get("id") or users[0].get("password") or ""
+                    uuid = users[0].get("id") or users[0].get("password") or uuid
                     if users[0].get("security"):
                         tls_security = users[0].get("security")
 
@@ -337,24 +394,92 @@ def decrypt_ehi_file(file_bytes: bytes) -> Dict[str, Any]:
             sec = stream.get("security", "")
             if sec:
                 tls_security = sec
-            is_tls = (sec.lower() == "tls")
 
             ws_settings = stream.get("wsSettings", {})
             if ws_settings.get("path"):
                 ws_path = ws_settings.get("path")
             ws_headers = ws_settings.get("headers", {})
             if ws_headers and isinstance(ws_headers, dict):
-                ws_host = ws_headers.get("Host") or ws_headers.get("host") or ""
+                ws_host = ws_headers.get("Host") or ws_headers.get("host") or ws_host
 
             tls_st = stream.get("tlsSettings", {})
             if tls_st.get("serverName"):
                 sni = tls_st.get("serverName")
+
+            reality_st = stream.get("realitySettings", {})
+            if reality_st.get("serverName"):
+                sni = reality_st.get("serverName")
+            if reality_st.get("publicKey"):
+                reality_pub = reality_st.get("publicKey")
+            if reality_st.get("shortId"):
+                reality_shortid = reality_st.get("shortId")
             break
+
+    # Priority 2: Master tunnelType / Discrete V2Ray
+    elif "dnstt" in tunnel_type or (dnstt_ns and "ssh" in tunnel_type):
+        active_proto = "SSH (DNSTT)"
+
+    elif "v2ray" in tunnel_type or "xray" in tunnel_type or v2r_proto:
+        if v2r_proto:
+            active_proto = v2r_proto.upper()
+        elif uuid:
+            active_proto = "VLESS" if len(uuid) == 36 else "VMESS"
+        elif v2r_pass:
+            active_proto = "TROJAN"
+        else:
+            active_proto = "V2RAY"
+
+        if reality_pub:
+            tls_security = "reality"
+
+    elif "shadowsocks" in tunnel_type:
+        active_proto = "SHADOWSOCKS"
 
     elif dnstt_ns:
         active_proto = "SSH (DNSTT)"
+
+    elif "ssh" in tunnel_type or "direct" in tunnel_type:
+        active_proto = "SSH"
+
+    is_v2ray_active = (has_v2ray_json or active_proto in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS", "V2RAY"])
+
+    # Resolve Server Host & Port based on active protocol
+    if is_v2ray_active:
         if not host:
-            host = dnstt_ns
+            host = str(_find_field(data, "v2rHost", "host", "serverData", "v2rLocalAddrIp", "shadowsocksHost", fallback="")).strip()
+        port_val = _find_field(data, "v2rPort", "port", "htrServerPort", "shadowsocksPort", fallback=0)
+    elif active_proto == "SSH (DNSTT)":
+        if not host:
+            host = str(_find_field(data, "host", "sshHost", "serverData", fallback="")).strip() or dnstt_ns
+        port_val = _find_field(data, "port", "sshPort", fallback=0)
+    else:
+        if not host:
+            host = str(_find_field(data, "host", "sshHost", "serverData", fallback="")).strip()
+        port_val = _find_field(data, "port", "sshPort", fallback=0)
+
+    try:
+        if not port:
+            port = int(port_val) if port_val else 0
+    except (ValueError, TypeError):
+        port = 0
+
+    user = str(_find_field(data, "user", "sshUser", "username", fallback="")).strip()
+    password = str(_find_field(data, "password", "sshPass", "pass", "shadowsocksPassword", fallback="")).strip()
+
+    is_tls = bool(tls_security in ["tls", "reality"] or port == 443 or (sni and sni != host))
+
+    # Default fallback ports
+    if not port:
+        port = 443 if (is_tls or active_proto in ["VMESS", "VLESS", "TROJAN"]) else 22
+
+    # Remote proxy & Payload
+    remote_proxy = str(_find_field(data, "remoteProxy", "proxy", fallback="")).strip()
+    proxy_port = _find_field(data, "remoteProxyPort", fallback="")
+    if remote_proxy and proxy_port and f":{proxy_port}" not in remote_proxy:
+        remote_proxy = f"{remote_proxy}:{proxy_port}"
+
+    payload = str(_find_field(data, "payload", "httpPayload", fallback="")).strip()
+    config_msg = str(_find_field(data, "configMessage", "note", fallback="")).strip()
 
     # Expiry parsing
     exp_ms = data.get("configExpiryTimestamp")
@@ -373,32 +498,47 @@ def decrypt_ehi_file(file_bytes: bytes) -> Dict[str, Any]:
     clean_note = re.sub(r'<[^>]+>', ' ', config_msg).strip() if config_msg else ""
     clean_note = " ".join(clean_note.split())[:350]
 
-    # Generate 1-click ready links (VLESS, VMESS, TROJAN, SSH)
+    # Generate 1-click ready links
+    ready_links: List[str] = []
     name = "HTTP Injector Config"
-    if active_proto == "VLESS" and uuid and host:
-        qp = {"type": network, "security": "tls" if is_tls else "none"}
+
+    if active_proto == "VLESS" and host:
+        user_id = uuid or "00000000-0000-0000-0000-000000000000"
+        qp = {"type": network}
+        if reality_pub:
+            qp["security"] = "reality"
+            qp["pbk"] = reality_pub
+            if reality_shortid: qp["sid"] = reality_shortid
+            qp["fp"] = "chrome"
+        elif is_tls:
+            qp["security"] = "tls"
+        else:
+            qp["security"] = "none"
+
         if ws_path: qp["path"] = ws_path
         if ws_host: qp["host"] = ws_host
-        if sni and sni != ws_host: qp["sni"] = sni
-        ready_links.append(f"vless://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
+        if sni: qp["sni"] = sni
+        ready_links.append(f"vless://{user_id}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
 
-    elif active_proto == "VMESS" and uuid and host:
+    elif active_proto == "VMESS" and host:
+        user_id = uuid or "00000000-0000-0000-0000-000000000000"
         vmess_dict = {
             "v": "2", "ps": name, "add": host, "port": str(port),
-            "id": uuid, "aid": "0", "scy": tls_security if tls_security not in ["none", ""] else "chacha20-poly1305",
+            "id": user_id, "aid": "0", "scy": tls_security if tls_security not in ["none", ""] else "auto",
             "net": network, "type": "none", "host": ws_host or "",
             "path": ws_path or "/", "tls": "tls" if is_tls else "none", "sni": sni or ""
         }
         ready_links.append("vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode())
 
-    elif active_proto == "TROJAN" and uuid and host:
+    elif active_proto == "TROJAN" and host:
+        trojan_pass = uuid or password or v2r_pass or "password"
         qp = {"type": network, "security": "tls" if is_tls else "none"}
         if ws_path: qp["path"] = ws_path
         if ws_host: qp["host"] = ws_host
         if sni: qp["sni"] = sni
-        ready_links.append(f"trojan://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
+        ready_links.append(f"trojan://{trojan_pass}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
 
-    # Add SSH ready link if user/host present
+    # Add SSH ready link if host and user present
     if host and user:
         ready_links.append(f"{host}:{port}@{user}:{password}")
 
@@ -408,44 +548,54 @@ def decrypt_ehi_file(file_bytes: bytes) -> Dict[str, Any]:
         f"   {active_proto} EXTRACTED INFO",
         "╚════════════════════════╝",
         "",
-        f"🚨 NAME: HTTP Injector",
+        "🚨 NAME: HTTP Injector",
         ""
     ]
 
     tls_str = "ON ✅" if is_tls else "OFF ❌"
 
-    # V2Ray details
-    if has_v2ray or uuid or active_proto in ["VMESS", "VLESS", "TROJAN"]:
+    # Display V2Ray details
+    if is_v2ray_active:
         if host:
             msg_lines.append(f"📍 ADDRESS : {html_escape(host)}")
+        if port:
+            msg_lines.append(f"🔌 PORT    : {port}")
         if uuid:
             label = "PASSWORD" if active_proto == "TROJAN" else "UUID    "
             msg_lines.append(f"🔑 {label}: {html_escape(uuid)}")
+        elif v2r_pass:
+            msg_lines.append(f"🔑 PASSWORD: {html_escape(v2r_pass)}")
         if ws_host:
             msg_lines.append(f"🌐 HOST    : {html_escape(ws_host)}")
         if ws_path:
             msg_lines.append(f"📁 PATH    : {html_escape(ws_path)}")
-        if port:
-            msg_lines.append(f"🔌 PORT    : {port}")
+        if sni and sni != ws_host:
+            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
         msg_lines.append(f"🛡️ TLS     : {tls_str}")
         msg_lines.append(f"🚦 TRANSPORT: {html_escape(network)}")
-        msg_lines.append(f"🔒 SECURITY: {html_escape(tls_security or 'none')}")
+        msg_lines.append(f"🔒 SECURITY: {html_escape(tls_security or ('reality' if reality_pub else 'none'))}")
+        if reality_pub:
+            msg_lines.append(f"🔑 REALITY PBK: {html_escape(reality_pub)}")
+        if reality_shortid:
+            msg_lines.append(f"🏷️ SHORT ID   : {html_escape(reality_shortid)}")
 
-    # SSH credentials (ALWAYS show if present)
-    if user or (password and not has_v2ray):
-        if not has_v2ray and host:
+    else:
+        # Display SSH / Standard Tunnel details
+        if host:
             msg_lines.append(f"🌐 SSH HOST: {html_escape(host)}")
-        if not has_v2ray and port:
+        if port:
             msg_lines.append(f"🔌 SSH PORT: {port}")
         if user:
             msg_lines.append(f"👤 SSH USER: {html_escape(user)}")
         if password:
             msg_lines.append(f"🔑 SSH PASS: {html_escape(password)}")
 
-    # Remote Proxy & SNI
+    # Remote Proxy
     if remote_proxy:
         msg_lines.append(f"🧭 PROXY   : {html_escape(remote_proxy)}")
-    if sni and sni != ws_host:
+
+    # SNI (if not already shown in V2Ray block)
+    if sni and not is_v2ray_active:
         msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
     # DNSTT details
