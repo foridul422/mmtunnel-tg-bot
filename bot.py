@@ -343,7 +343,8 @@ def start_bot():
                 "📁 <b>Dark Tunnel (.dark) Config Decryptor</b>\n\n"
                 "ℹ️ <i>Dark Tunnel uses custom encrypted <code>.dark</code> configuration files (AES-CFB + MsgPack).</i>\n\n"
                 "📤 <b>How to Decrypt:</b>\n"
-                "Simply <b>send or forward</b> any <code>.dark</code> file directly to this chat!\n\n"
+                "• Send or forward any <code>.dark</code> file, <b>OR</b>\n"
+                "• Simply <b>paste & send the Dark Tunnel Clipboard text</b> (starts with <code>darktunnel://</code> or raw base64) directly to this chat!\n\n"
                 "⚡ <b>The bot will automatically:</b>\n"
                 "  • Break 2-Layer AES-CFB (256-bit + 192-bit) crypto\n"
                 "  • Unpack binary MsgPack containers & V2Ray outbounds\n"
@@ -858,9 +859,65 @@ def start_bot():
             )
             send_admin_report_async(bot, message.from_user, target_app, "FAILED", details=str(e))
 
-    # ================= GENERAL TEXT MESSAGES =================
+    # ================= GENERAL TEXT & CLIPBOARD MESSAGES =================
     @bot.message_handler(func=lambda m: True)
     def handle_other_messages(message):
+        text = (message.text or "").strip()
+        chat_id = message.chat.id
+
+        # 1. Dark Tunnel Clipboard / Deep Link (darktunnel:// or raw base64 with encryptedLockedConfig)
+        if text.startswith("darktunnel://") or (len(text) > 40 and ("eyJ" in text or "encryptedLockedConfig" in text)):
+            status_msg = bot.reply_to(message, "⏳ <b>Processing Dark Tunnel Clipboard Config...</b>", parse_mode="HTML")
+            try:
+                res = decrypt_dark_file(text.encode("utf-8"))
+                msg_text = res["styled_message"]
+                if len(msg_text) > 4000:
+                    msg_text = msg_text[:3990] + "..."
+
+                try:
+                    bot.send_message(
+                        chat_id,
+                        msg_text,
+                        reply_to_message_id=message.message_id,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                except Exception:
+                    clean_text = msg_text.replace("<code>", "").replace("</code>", "").replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+                    bot.send_message(
+                        chat_id,
+                        clean_text,
+                        reply_to_message_id=message.message_id,
+                        disable_web_page_preview=True
+                    )
+
+                try:
+                    bot.delete_message(chat_id, status_msg.message_id)
+                except Exception:
+                    pass
+
+                # Audit report
+                creator = res.get("creator", "Unknown")
+                protocol = res.get("protocol", "Unknown")
+                details = (
+                    f"Type: Dark Tunnel Clipboard\n"
+                    f"Creator: {creator}\n"
+                    f"Protocol: {protocol}\n"
+                    f"Server: {res.get('server_host', 'N/A')}:{res.get('server_port', 0)}\n"
+                    f"Length: {len(text)} chars"
+                )
+                send_admin_report_async(bot, message.from_user, "Dark Tunnel (Clipboard)", "SUCCESS", details=details)
+                return
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>Dark Tunnel Clipboard Decryption Failed!</b>\nError: <code>{html_escape(str(e))}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
+                send_admin_report_async(bot, message.from_user, "Dark Tunnel (Clipboard)", "FAILED", details=str(e))
+                return
+
+        # 2. General Text Fallback
         send_admin_report_async(bot, message.from_user, "Direct Text Message", "INFO", details=f"User sent: {message.text}")
         markup = get_main_markup()
         bot.reply_to(
