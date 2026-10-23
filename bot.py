@@ -39,7 +39,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v4.1 - HTTP Custom .hc, Dark Tunnel .dark, HTTP Injector .ehi, NapsternetV .npv Decryptors & Admin Reporting Active) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v4.2 - Dark Tunnel Clipboard + Config Decryptor & Live VPNs) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
