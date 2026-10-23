@@ -390,15 +390,16 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
     else:
         active_proto = str(protocol).upper()
 
-    # 6. Generate 1-Click Ready Link
-    if active_proto == "VLESS" and uuid:
+    # 6. Generate 1-Click Ready Links (VLESS, VMESS, TROJAN, SSH, UDP)
+    ready_links = []
+    if active_proto == "VLESS" and uuid and host:
         qp = {"type": network, "security": "tls" if is_tls else "none"}
         if ws_path: qp["path"] = ws_path
         if ws_host: qp["host"] = ws_host
         if sni and sni != ws_host: qp["sni"] = sni
-        v2ray_link = f"vless://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+        ready_links.append(f"vless://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
 
-    elif active_proto == "VMESS" and uuid:
+    elif active_proto == "VMESS" and uuid and host:
         vmess_dict = {
             "v": "2",
             "ps": name,
@@ -414,21 +415,19 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
             "tls": "tls" if is_tls else "none",
             "sni": sni or ""
         }
-        v2ray_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
+        ready_links.append("vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode())
 
-    elif active_proto == "TROJAN" and (uuid or password):
+    elif active_proto == "TROJAN" and (uuid or password) and host:
         auth_pw = uuid or password
         qp = {"type": network, "security": "tls" if is_tls else "none"}
         if ws_path: qp["path"] = ws_path
         if ws_host: qp["host"] = ws_host
         if sni: qp["sni"] = sni
-        v2ray_link = f"trojan://{auth_pw}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+        ready_links.append(f"trojan://{auth_pw}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}")
 
-    elif active_proto == "SSH" and host and username:
-        v2ray_link = f"{host}:{port}@{username}:{password}"
-
-    elif active_proto == "UDP CUSTOM" and host and username:
-        v2ray_link = f"{host}:{port}@{username}:{password}"
+    # Add SSH / UDP Ready Link if credentials are present
+    if username and host:
+        ready_links.append(f"{host}:{port}@{username}:{password}")
 
     # Check unlock status for name display
     is_unlocked = (protections.get("a") == "normal" or not protections.get("a"))
@@ -446,7 +445,7 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
         except Exception:
             expiry_str = str(expiry_ms)
 
-    # 7. Build Clean, Styled Direct Telegram Message
+    # 7. Build Clean, Styled Direct Telegram Message - ZERO FILTERING!
     msg_lines = [
         "╔════════════════════════╗",
         f"   {active_proto} EXTRACTED INFO",
@@ -458,86 +457,61 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
 
     tls_str = "ON ✅" if is_tls else "OFF ❌"
 
+    # V2Ray / Tunnel Connection details
     if is_v2ray or active_proto in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"]:
         if host and host != "N/A":
             msg_lines.append(f"📍 ADDRESS : {html_escape(host)}")
         if uuid:
             msg_lines.append(f"🔑 UUID    : {html_escape(uuid)}")
-        elif password:
+        elif password and not username:
             msg_lines.append(f"🔑 PASSWORD: {html_escape(password)}")
         if ws_host:
             msg_lines.append(f"🌐 HOST    : {html_escape(ws_host)}")
         if ws_path:
             msg_lines.append(f"📁 PATH    : {html_escape(ws_path)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
+        if port:
+            msg_lines.append(f"🔌 PORT    : {port}")
         msg_lines.append(f"🛡️ TLS     : {tls_str}")
         msg_lines.append(f"🚦 TRANSPORT: {html_escape(network)}")
         msg_lines.append(f"🔒 SECURITY: {html_escape(tls_security or 'none')}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
-        if proxy_val:
-            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
-        if sni and sni != ws_host and sni != "None":
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
-    elif active_proto == "SSH":
-        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
+    # SSH / UDP credentials (ALWAYS show if present, even alongside V2Ray)
+    if username or (password and not is_v2ray):
+        if not is_v2ray and host and host != "N/A":
+            msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
+        if not is_v2ray and port:
+            msg_lines.append(f"🔌 PORT    : {port}")
         if username:
             msg_lines.append(f"👤 USER    : {html_escape(username)}")
         if password:
             msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
-        if proxy_val:
-            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
-        if sni and sni != "None":
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
-    elif active_proto == "UDP CUSTOM":
-        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
-        if username:
-            msg_lines.append(f"👤 USER    : {html_escape(username)}")
-        if password:
-            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        if sni and sni != "None":
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+    # Inject Mode, Proxy & SNI
+    msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+    if proxy_val:
+        msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
+    if sni and sni != ws_host and sni != "None":
+        msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
-    else:
-        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
-        if username:
-            msg_lines.append(f"👤 USER    : {html_escape(username)}")
-        if password:
-            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        if sni and sni != "None":
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
-
-    # Custom Payload block
+    # Custom Payload block (ALWAYS show if present)
     if custom_payload and custom_payload.strip() and not custom_payload.strip().startswith("{"):
         msg_lines.extend([
             "",
             "📦 PAYLOAD:",
-            html_escape(custom_payload.strip()[:1000])
+            html_escape(custom_payload.strip()[:1500])
         ])
 
-    # Ready Link block
-    if v2ray_link:
-        link_title = "🔗 READY LINK:"
-        if active_proto == "SSH":
-            link_title = "🔐 SSH READY LINK:"
-        elif active_proto == "UDP CUSTOM":
-            link_title = "🔗 UDP READY LINK:"
-
+    # Ready Link block (ALWAYS show all ready links)
+    if ready_links:
         msg_lines.extend([
             "",
             "────────────────────────",
-            link_title,
+            "🔗 READY LINK:",
             "────────────────────────",
-            "",
-            f"<code>{v2ray_link}</code>"
+            ""
         ])
+        for r_link in ready_links:
+            msg_lines.append(f"<code>{html_escape(r_link)}</code>")
 
     # Notes & Expiry
     if expiry_str:
