@@ -133,46 +133,46 @@ def get_welcome_text(user: Any) -> str:
     user_name = getattr(user, "first_name", "") or "User"
     user_id = getattr(user, "id", "Unknown")
     return (
-        "🌸 <b>VPN DECRYPTOR PRO</b> 🪄\n"
-        f"<blockquote>👤 <b>User:</b> {html_escape(user_name)}\n"
-        f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-        "⚡ <b>Engine:</b> <code>v4.2 Active 🟢</code></blockquote>\n\n"
-        "📖 <b>Supported Files:</b> <code>.hc</code> • <code>.dark</code> • <code>.ehi</code> • <code>.npv</code>\n"
-        "✨ <b>Select a Server or Cloud VPN:</b>"
+        "<b>VPN DECRYPTOR PRO</b>\n"
+        f"<blockquote><b>User:</b> {html_escape(user_name)}\n"
+        f"<b>ID:</b> <code>{user_id}</code>\n"
+        "<b>Engine:</b> <code>Active</code></blockquote>\n\n"
+        "<b>Supported Files:</b> <code>.hc</code> • <code>.dark</code> • <code>.ehi</code> • <code>.npv</code>\n"
+        "<b>Select a Server or Cloud VPN:</b>"
     )
 
 
 def get_vpn_markup() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
-    # Row 1: File Decryptors (3 Columns - Primary Deep Blue)
+    # Row 1: File Decryptors (3 Columns - Deep Blue Accent)
     markup.row(
-        InlineKeyboardButton("📁 Custom", callback_data="dec_httpcustom", style="primary"),
-        InlineKeyboardButton("🌑 Dark", callback_data="dec_darktunnel", style="primary"),
-        InlineKeyboardButton("💉 Injector", callback_data="dec_httpinjector", style="primary")
+        InlineKeyboardButton("HTTP Custom", callback_data="dec_httpcustom", style="primary"),
+        InlineKeyboardButton("Dark Tunnel", callback_data="dec_darktunnel", style="primary"),
+        InlineKeyboardButton("HTTP Injector", callback_data="dec_httpinjector", style="primary")
     )
-    # Row 2: File Decryptor + Live VPNs (3 Columns - Primary Deep Blue)
+    # Row 2: File Decryptor + Live VPNs (3 Columns - Deep Blue Accent)
     markup.row(
-        InlineKeyboardButton("⚡ Napster", callback_data="dec_npv", style="primary"),
-        InlineKeyboardButton("🛡️ MMTunnel", callback_data="dec_mmtunnel", style="primary"),
-        InlineKeyboardButton("💎 TeriX", callback_data="dec_terix", style="primary")
+        InlineKeyboardButton("NapsternetV", callback_data="dec_npv", style="primary"),
+        InlineKeyboardButton("MM Tunnel", callback_data="dec_mmtunnel", style="primary"),
+        InlineKeyboardButton("TeriX VPN", callback_data="dec_terix", style="primary")
     )
-    # Row 3: Live OTA Cloud VPNs (3 Columns - Primary Deep Blue)
+    # Row 3: Live OTA Cloud VPNs (3 Columns - Deep Blue Accent)
     markup.row(
-        InlineKeyboardButton("🐻 Ursa Net", callback_data="dec_ursanet", style="primary"),
-        InlineKeyboardButton("🎯 VIPSniper", callback_data="dec_vipsniper", style="primary"),
-        InlineKeyboardButton("🥋 Sensei", callback_data="dec_sensei", style="primary")
+        InlineKeyboardButton("Ursa Net PRO", callback_data="dec_ursanet", style="primary"),
+        InlineKeyboardButton("VIP Sniper", callback_data="dec_vipsniper", style="primary"),
+        InlineKeyboardButton("Sensei Tunnel", callback_data="dec_sensei", style="primary")
     )
-    # Row 4: Live OTA Cloud VPNs (3 Columns - Primary Deep Blue)
+    # Row 4: Live OTA Cloud VPNs (3 Columns - Deep Blue Accent)
     markup.row(
-        InlineKeyboardButton("🛡️ IZPH Pro", callback_data="dec_izph", style="primary"),
-        InlineKeyboardButton("🚀 IPTunnel", callback_data="dec_iptunnel", style="primary"),
-        InlineKeyboardButton("⚡ BoostVPN", callback_data="dec_boostvpn", style="primary")
+        InlineKeyboardButton("IZPH PRO", callback_data="dec_izph", style="primary"),
+        InlineKeyboardButton("IPTunnel", callback_data="dec_iptunnel", style="primary"),
+        InlineKeyboardButton("Boost VPN", callback_data="dec_boostvpn", style="primary")
     )
-    # Row 5: Action Controls Bar (3 Columns - Blue, Green, Red)
+    # Row 5: Action Controls Bar (3 Columns - Blue & Red Accent)
     markup.row(
-        InlineKeyboardButton("👑 Admin", callback_data="btn_admin", style="primary"),
-        InlineKeyboardButton("🔄 Refresh", callback_data="btn_refresh", style="success"),
-        InlineKeyboardButton("❌ Close", callback_data="btn_close", style="danger")
+        InlineKeyboardButton("Admin", callback_data="btn_admin", style="primary"),
+        InlineKeyboardButton("Refresh", callback_data="btn_refresh", style="primary"),
+        InlineKeyboardButton("Close", callback_data="btn_close", style="danger")
     )
     return markup
 
