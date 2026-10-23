@@ -129,7 +129,7 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def get_welcome_text(user: Any) -> str:
+def get_main_menu_text(user: Any) -> str:
     user_name = getattr(user, "first_name", "") or "User"
     user_id = getattr(user, "id", "Unknown")
     return (
@@ -137,44 +137,100 @@ def get_welcome_text(user: Any) -> str:
         f"<blockquote><b>User:</b> {html_escape(user_name)}\n"
         f"<b>ID:</b> <code>{user_id}</code>\n"
         "<b>Engine:</b> <code>Active</code></blockquote>\n\n"
-        "<b>Supported Files:</b> <code>.hc</code> • <code>.dark</code> • <code>.ehi</code> • <code>.npv</code>\n"
-        "<b>Select a Server or Cloud VPN:</b>"
+        "<b>Select a Category below:</b>"
     )
 
 
-def get_vpn_markup() -> InlineKeyboardMarkup:
+def get_main_markup() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
-    # Row 1: File Decryptors (3 Columns - Deep Blue Accent)
+    # 2 Main Categories
     markup.row(
-        InlineKeyboardButton("HTTP Custom", callback_data="dec_httpcustom", style="primary"),
-        InlineKeyboardButton("Dark Tunnel", callback_data="dec_darktunnel", style="primary"),
-        InlineKeyboardButton("HTTP Injector", callback_data="dec_httpinjector", style="primary")
+        InlineKeyboardButton("Config Decryptor", callback_data="menu_config_decryptor", style="primary")
     )
-    # Row 2: File Decryptor + Live VPNs (3 Columns - Deep Blue Accent)
     markup.row(
-        InlineKeyboardButton("NapsternetV", callback_data="dec_npv", style="primary"),
-        InlineKeyboardButton("MM Tunnel", callback_data="dec_mmtunnel", style="primary"),
-        InlineKeyboardButton("TeriX VPN", callback_data="dec_terix", style="primary")
+        InlineKeyboardButton("VPN Decryptor (Live API)", callback_data="menu_vpn_live", style="primary")
     )
-    # Row 3: Live OTA Cloud VPNs (3 Columns - Deep Blue Accent)
-    markup.row(
-        InlineKeyboardButton("Ursa Net PRO", callback_data="dec_ursanet", style="primary"),
-        InlineKeyboardButton("VIP Sniper", callback_data="dec_vipsniper", style="primary"),
-        InlineKeyboardButton("Sensei Tunnel", callback_data="dec_sensei", style="primary")
-    )
-    # Row 4: Live OTA Cloud VPNs (3 Columns - Deep Blue Accent)
-    markup.row(
-        InlineKeyboardButton("IZPH PRO", callback_data="dec_izph", style="primary"),
-        InlineKeyboardButton("IPTunnel", callback_data="dec_iptunnel", style="primary"),
-        InlineKeyboardButton("Boost VPN", callback_data="dec_boostvpn", style="primary")
-    )
-    # Row 5: Action Controls Bar (3 Columns - Blue & Red Accent)
+    # Action Controls Bar
     markup.row(
         InlineKeyboardButton("Admin", callback_data="btn_admin", style="primary"),
         InlineKeyboardButton("Refresh", callback_data="btn_refresh", style="primary"),
         InlineKeyboardButton("Close", callback_data="btn_close", style="danger")
     )
     return markup
+
+
+def get_config_decryptor_text() -> str:
+    return (
+        "<b>CONFIG DECRYPTOR</b>\n"
+        "<blockquote><b>Supported Files:</b> <code>.hc</code> • <code>.dark</code> • <code>.ehi</code> • <code>.npv</code>\n"
+        "<b>Status:</b> <code>Zero-Filter Active</code></blockquote>\n\n"
+        "Select an app below for info or <b>directly send/forward</b> your config file to this chat:"
+    )
+
+
+def get_config_decryptor_markup() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    # Row 1: HTTP Custom & Dark Tunnel
+    markup.row(
+        InlineKeyboardButton("HTTP Custom", callback_data="dec_httpcustom", style="primary"),
+        InlineKeyboardButton("Dark Tunnel", callback_data="dec_darktunnel", style="primary")
+    )
+    # Row 2: HTTP Injector & NapsternetV
+    markup.row(
+        InlineKeyboardButton("HTTP Injector", callback_data="dec_httpinjector", style="primary"),
+        InlineKeyboardButton("NapsternetV", callback_data="dec_npv", style="primary")
+    )
+    # Row 3: Back to Main Menu
+    markup.row(
+        InlineKeyboardButton("Back to Main Menu", callback_data="back_main", style="danger")
+    )
+    return markup
+
+
+def get_vpn_live_text() -> str:
+    return (
+        "<b>VPN DECRYPTOR (LIVE API)</b>\n"
+        "<blockquote><b>Type:</b> Online OTA Cloud Configurations\n"
+        "<b>Filter:</b> <code>None (100% Raw Decrypted Data)</code></blockquote>\n\n"
+        "Select a Cloud VPN below to decrypt live servers & configs:"
+    )
+
+
+def get_vpn_live_markup() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    # Row 1: MM Tunnel & TeriX VPN
+    markup.row(
+        InlineKeyboardButton("MM Tunnel", callback_data="dec_mmtunnel", style="primary"),
+        InlineKeyboardButton("TeriX VPN", callback_data="dec_terix", style="primary")
+    )
+    # Row 2: Ursa Net PRO & VIP Sniper
+    markup.row(
+        InlineKeyboardButton("Ursa Net PRO", callback_data="dec_ursanet", style="primary"),
+        InlineKeyboardButton("VIP Sniper", callback_data="dec_vipsniper", style="primary")
+    )
+    # Row 3: Sensei Tunnel & IZPH PRO
+    markup.row(
+        InlineKeyboardButton("Sensei Tunnel", callback_data="dec_sensei", style="primary"),
+        InlineKeyboardButton("IZPH PRO", callback_data="dec_izph", style="primary")
+    )
+    # Row 4: IPTunnel & Boost VPN
+    markup.row(
+        InlineKeyboardButton("IPTunnel", callback_data="dec_iptunnel", style="primary"),
+        InlineKeyboardButton("Boost VPN", callback_data="dec_boostvpn", style="primary")
+    )
+    # Row 5: Back to Main Menu
+    markup.row(
+        InlineKeyboardButton("Back to Main Menu", callback_data="back_main", style="danger")
+    )
+    return markup
+
+
+def get_welcome_text(user: Any) -> str:
+    return get_main_menu_text(user)
+
+
+def get_vpn_markup() -> InlineKeyboardMarkup:
+    return get_main_markup()
 
 
 # ================= TELEGRAM BOT LOGIC =================
@@ -188,8 +244,8 @@ def start_bot():
     @bot.message_handler(commands=["start", "help"])
     def handle_start(message):
         send_admin_report_async(bot, message.from_user, "Bot Menu (/start)", "SUCCESS", details="User accessed main menu")
-        markup = get_vpn_markup()
-        welcome_text = get_welcome_text(message.from_user)
+        markup = get_main_markup()
+        welcome_text = get_main_menu_text(message.from_user)
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
     @bot.message_handler(commands=["admin"])
@@ -201,7 +257,7 @@ def start_bot():
                 f"👑 <b>Admin Control Panel</b>\n\n"
                 f"<blockquote>🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
                 f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
-                f"⚡ <b>Engine Version:</b> <code>v4.2 (Full Decryptors + UI Grid Active)</code>\n"
+                f"⚡ <b>Engine Version:</b> <code>v4.5 (Categorized UI Active)</code>\n"
                 f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code></blockquote>\n\n"
                 f"<i>All bot usage, user decryptions, successes & failures are sent to this chat in real time!</i>"
             )
@@ -214,28 +270,53 @@ def start_bot():
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
 
-        if call.data == "vpn_list":
-            markup = get_vpn_markup()
-            welcome_text = get_welcome_text(call.from_user)
-            bot.edit_message_text(
-                welcome_text,
-                chat_id=chat_id,
-                message_id=msg_id,
-                reply_markup=markup
-            )
+        if call.data in ["back_main", "vpn_list", "btn_refresh"]:
+            if call.data == "btn_refresh":
+                bot.answer_callback_query(call.id, "Menu Refreshed 🔄")
+            else:
+                bot.answer_callback_query(call.id, "Main Menu")
+            markup = get_main_markup()
+            welcome_text = get_main_menu_text(call.from_user)
+            try:
+                bot.edit_message_text(
+                    welcome_text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=markup
+                )
+            except Exception:
+                bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
-        elif call.data == "back_main":
-            markup = get_vpn_markup()
-            welcome_text = get_welcome_text(call.from_user)
-            bot.edit_message_text(
-                welcome_text,
-                chat_id=chat_id,
-                message_id=msg_id,
-                reply_markup=markup
-            )
+        elif call.data == "menu_config_decryptor":
+            bot.answer_callback_query(call.id, "Config Decryptor")
+            markup = get_config_decryptor_markup()
+            text = get_config_decryptor_text()
+            try:
+                bot.edit_message_text(
+                    text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=markup
+                )
+            except Exception:
+                bot.send_message(chat_id, text, reply_markup=markup)
+
+        elif call.data == "menu_vpn_live":
+            bot.answer_callback_query(call.id, "VPN Decryptor (Live API)")
+            markup = get_vpn_live_markup()
+            text = get_vpn_live_text()
+            try:
+                bot.edit_message_text(
+                    text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=markup
+                )
+            except Exception:
+                bot.send_message(chat_id, text, reply_markup=markup)
 
         elif call.data == "dec_httpcustom":
-            bot.answer_callback_query(call.id, "📁 HTTP Custom (.hc) File Decryptor")
+            bot.answer_callback_query(call.id, "HTTP Custom (.hc)")
             info_text = (
                 "📁 <b>HTTP Custom (.hc) Config Decryptor</b>\n\n"
                 "ℹ️ <i>HTTP Custom uses custom encrypted <code>.hc</code> configuration files.</i>\n\n"
@@ -249,10 +330,15 @@ def start_bot():
                 "  • Deliver clean, copyable credentials and ready links!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
-            bot.send_message(chat_id, info_text)
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("Back", callback_data="menu_config_decryptor", style="danger"))
+            try:
+                bot.edit_message_text(info_text, chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+            except Exception:
+                bot.send_message(chat_id, info_text, reply_markup=markup)
 
         elif call.data == "dec_darktunnel":
-            bot.answer_callback_query(call.id, "📁 Dark Tunnel (.dark) File Decryptor")
+            bot.answer_callback_query(call.id, "Dark Tunnel (.dark)")
             info_text = (
                 "📁 <b>Dark Tunnel (.dark) Config Decryptor</b>\n\n"
                 "ℹ️ <i>Dark Tunnel uses custom encrypted <code>.dark</code> configuration files (AES-CFB + MsgPack).</i>\n\n"
@@ -266,10 +352,15 @@ def start_bot():
                 "  • Generate instant 1-click importable ready links!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
-            bot.send_message(chat_id, info_text)
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("Back", callback_data="menu_config_decryptor", style="danger"))
+            try:
+                bot.edit_message_text(info_text, chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+            except Exception:
+                bot.send_message(chat_id, info_text, reply_markup=markup)
 
         elif call.data == "dec_httpinjector":
-            bot.answer_callback_query(call.id, "📁 HTTP Injector (.ehi) File Decryptor")
+            bot.answer_callback_query(call.id, "HTTP Injector (.ehi)")
             info_text = (
                 "📁 <b>HTTP Injector (.ehi) Config Decryptor</b>\n\n"
                 "ℹ️ <i>HTTP Injector uses multi-layer encrypted <code>.ehi</code> configuration files.</i>\n\n"
@@ -283,10 +374,15 @@ def start_bot():
                 "  • Generate instant 1-click copyable links & configs!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
-            bot.send_message(chat_id, info_text)
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("Back", callback_data="menu_config_decryptor", style="danger"))
+            try:
+                bot.edit_message_text(info_text, chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+            except Exception:
+                bot.send_message(chat_id, info_text, reply_markup=markup)
 
         elif call.data == "dec_npv":
-            bot.answer_callback_query(call.id, "📁 NapsternetV (NPV) File Decryptor")
+            bot.answer_callback_query(call.id, "NapsternetV (NPV)")
             info_text = (
                 "📁 <b>NapsternetV (.npv / .npvt / .npvs / .npv4) Decryptor</b>\n\n"
                 "ℹ️ <i>NapsternetV uses custom whitebox AES encrypted configuration containers.</i>\n\n"
@@ -300,26 +396,17 @@ def start_bot():
                 "  • Generate instant 1-click importable ready links!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
-            bot.send_message(chat_id, info_text)
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("Back", callback_data="menu_config_decryptor", style="danger"))
+            try:
+                bot.edit_message_text(info_text, chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+            except Exception:
+                bot.send_message(chat_id, info_text, reply_markup=markup)
 
         elif call.data == "btn_close":
             bot.answer_callback_query(call.id, "Menu Closed ❌")
             try:
                 bot.delete_message(chat_id, msg_id)
-            except Exception:
-                pass
-
-        elif call.data == "btn_refresh":
-            bot.answer_callback_query(call.id, "Menu Refreshed 🔄")
-            markup = get_vpn_markup()
-            welcome_text = get_welcome_text(call.from_user)
-            try:
-                bot.edit_message_text(
-                    welcome_text,
-                    chat_id=chat_id,
-                    message_id=msg_id,
-                    reply_markup=markup
-                )
             except Exception:
                 pass
 
@@ -329,7 +416,7 @@ def start_bot():
                 bot.send_message(
                     chat_id,
                     f"👑 <b>Admin Control Panel</b>\n\n"
-                    f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
+                    f"<blockquote>🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
                     f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
                     f"⚡ <b>Engine Version:</b> <code>v4.2 (Full Decryptors + UI Grid Active)</code>\n"
                     f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>"
@@ -775,10 +862,10 @@ def start_bot():
     @bot.message_handler(func=lambda m: True)
     def handle_other_messages(message):
         send_admin_report_async(bot, message.from_user, "Direct Text Message", "INFO", details=f"User sent: {message.text}")
-        markup = get_vpn_markup()
+        markup = get_main_markup()
         bot.reply_to(
             message,
-            get_welcome_text(message.from_user),
+            get_main_menu_text(message.from_user),
             reply_markup=markup
         )
 
