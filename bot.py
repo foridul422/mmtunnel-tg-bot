@@ -3,7 +3,7 @@
 =============================================================================
   TELEGRAM VPN DECRYPTOR BOT (FOR RENDER DEPLOYMENT)
   By         : @Foridul_002 🇧🇩
-  Version    : 4.0 (HTTP Custom .hc + Dark Tunnel .dark + HTTP Injector .ehi + 8 Live VPNs)
+  Version    : 4.1 (HTTP Custom .hc + Dark Tunnel .dark + HTTP Injector .ehi + NapsternetV .npv + 8 Live VPNs)
 =============================================================================
 """
 
@@ -39,7 +39,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v4.0 - HTTP Custom .hc, Dark Tunnel .dark, HTTP Injector .ehi Decryptors & Admin Reporting Active) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v4.1 - HTTP Custom .hc, Dark Tunnel .dark, HTTP Injector .ehi, NapsternetV .npv Decryptors & Admin Reporting Active) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -66,6 +66,7 @@ from boost_vpn import decrypt_boost_vpn_live
 from engine_httpcustom import decrypt_hc_file
 from engine_darktunnel import decrypt_dark_file
 from engine_httpinjector import decrypt_ehi_file
+from engine_npv import decrypt_npv_file
 
 
 # ================= ADMIN AUDIT & REPORTING SYSTEM =================
@@ -134,6 +135,7 @@ def get_vpn_markup() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📁 HTTP Custom (.hc File Decryptor)", callback_data="dec_httpcustom"),
         InlineKeyboardButton("📁 Dark Tunnel (.dark File Decryptor)", callback_data="dec_darktunnel"),
         InlineKeyboardButton("📁 HTTP Injector (.ehi File Decryptor)", callback_data="dec_httpinjector"),
+        InlineKeyboardButton("📁 NapsternetV (.npv / .npvt / .npvs / .npv4)", callback_data="dec_npv"),
         InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
         InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
         InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
@@ -163,7 +165,7 @@ def start_bot():
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
             "<i>By: @Foridul_002 🇧🇩</i>\n\n"
-            "Select an online VPN to decrypt or send any <b>.hc / .dark / .ehi</b> file:"
+            "Select an online VPN to decrypt or send any <b>.hc / .dark / .ehi / .npv</b> file:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
@@ -176,7 +178,7 @@ def start_bot():
                 f"👑 <b>Admin Control Panel</b>\n\n"
                 f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
                 f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
-                f"⚡ <b>Engine Version:</b> <code>v4.0 (.hc, .dark, .ehi Active)</code>\n"
+                f"⚡ <b>Engine Version:</b> <code>v4.1 (.hc, .dark, .ehi, .npv Active)</code>\n"
                 f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>\n\n"
                 f"<i>All bot usage, user decryptions, successes & failures are sent to this chat in real time!</i>"
             )
@@ -193,7 +195,7 @@ def start_bot():
             markup = get_vpn_markup()
             markup.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main"))
             bot.edit_message_text(
-                "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc / .dark / .ehi</b> file:",
+                "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc / .dark / .ehi / .npv</b> file:",
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=markup
@@ -256,6 +258,23 @@ def start_bot():
                 "  • Decode custom alphabet Base64 + XOR salt translation\n"
                 "  • Extract SSH, DNSTT, V2Ray credentials & Payloads\n"
                 "  • Generate instant 1-click copyable links & configs!\n\n"
+                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            )
+            bot.send_message(chat_id, info_text)
+
+        elif call.data == "dec_npv":
+            bot.answer_callback_query(call.id, "📁 NapsternetV (NPV) File Decryptor")
+            info_text = (
+                "📁 <b>NapsternetV (.npv / .npvt / .npvs / .npv4) Decryptor</b>\n\n"
+                "ℹ️ <i>NapsternetV uses custom whitebox AES encrypted configuration containers.</i>\n\n"
+                "📤 <b>How to Decrypt:</b>\n"
+                "Simply <b>send or forward</b> any <code>.npv</code>, <code>.npvt</code>, <code>.npvs</code>, or <code>.npv4</code> file directly to this chat!\n\n"
+                "⚡ <b>The bot will automatically:</b>\n"
+                "  • Break custom Whitebox AES cipher & state tables\n"
+                "  • Unpack V2Ray profiles (VLESS, VMess, Trojan, Shadowsocks)\n"
+                "  • Extract SSH credentials, SNI, HTTP Proxy & Payloads\n"
+                "  • Reveal locked passwords, expiration dates & creator notes\n"
+                "  • Generate instant 1-click importable ready links!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
             bot.send_message(chat_id, info_text)
@@ -604,8 +623,12 @@ def start_bot():
         file_name = doc.file_name or "config"
         ext = os.path.splitext(file_name.lower())[1]
 
+        # Supported extensions
+        npv_extensions = [".npv", ".npvt", ".npvs", ".npv4"]
+        supported_extensions = [".hc", ".dark", ".ehi"] + npv_extensions
+
         # Silently ignore non-supported files without sending any response
-        if ext not in [".hc", ".dark", ".ehi"]:
+        if ext not in supported_extensions:
             return
 
         if ext == ".hc":
@@ -617,6 +640,9 @@ def start_bot():
         elif ext == ".ehi":
             target_app = "HTTP Injector (.ehi Upload)"
             crypto_info = "🔐 Breaking AES-CBC + XXTEA + Argon2id/ChaCha20 crypto..."
+        elif ext in npv_extensions:
+            target_app = f"NapsternetV ({ext} Upload)"
+            crypto_info = "🔐 Breaking NapsternetV Whitebox AES Cipher..."
 
         status_msg = bot.reply_to(
             message,
@@ -635,6 +661,8 @@ def start_bot():
                 res = decrypt_dark_file(downloaded_bytes)
             elif ext == ".ehi":
                 res = decrypt_ehi_file(downloaded_bytes)
+            elif ext in npv_extensions:
+                res = decrypt_npv_file(downloaded_bytes)
 
             # Send clean, styled direct message replying to the uploaded file
             msg_text = res["styled_message"]
@@ -692,7 +720,7 @@ def start_bot():
         markup = get_vpn_markup()
         bot.reply_to(
             message,
-            "🤖 <b>Please choose an option from the menu or send an .hc / .dark / .ehi file:</b>",
+            "🤖 <b>Please choose an option from the menu or send an .hc / .dark / .ehi / .npv file:</b>",
             reply_markup=markup
         )
 
