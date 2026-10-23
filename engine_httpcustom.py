@@ -15,6 +15,7 @@ import base64
 import urllib.parse
 import datetime
 from typing import Dict, Any, List, Optional
+import re
 import nacl.bindings as nb
 
 # ================= CRYPTOGRAPHIC CONSTANTS =================
@@ -206,20 +207,49 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
 
             profiles.append(fields)
 
-    # 5. Extract Rich Connection Details
+    # 5. Extract Rich Connection Details across ALL profiles
     primary_profile = profiles[0] if profiles else {}
-    name = primary_profile.get("a", "Config")
-    protocol = primary_profile.get("b") or parts or "HTTP Custom"
-    host = primary_profile.get("c", "N/A")
-    port = primary_profile.get("d", 0)
-    username = primary_profile.get("e", "")
-    password = primary_profile.get("f", "")
-    sni = primary_profile.get("g", "")
-    raw_h = primary_profile.get("h", "")
-    inject_flag = str(primary_profile.get("k", "0"))
+
+    v2ray_prof = None
+    ssh_prof = None
+    payload_prof = None
+
+    for prof in profiles:
+        p_proto = str(prof.get("b", "")).lower()
+        p_raw_h = str(prof.get("h", ""))
+        p_e = str(prof.get("e", ""))
+
+        if "v2ray" in p_proto or "vmess" in p_proto or "vless" in p_proto:
+            v2ray_prof = prof
+        elif p_raw_h and ("\"vnext\"" in p_raw_h or "\"outbounds\"" in p_raw_h or "\"vless\"" in p_raw_h or "\"vmess\"" in p_raw_h):
+            v2ray_prof = prof
+        elif re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", p_e):
+            v2ray_prof = prof
+
+        if "ssh" in p_proto or (prof.get("e") and prof.get("f") and not re.search(r"[0-9a-fA-F]{8}-", prof.get("e", ""))):
+            ssh_prof = prof
+
+        if p_raw_h and not p_raw_h.strip().startswith("{") and len(p_raw_h.strip()) > 5:
+            payload_prof = prof
+
+    target_profile = v2ray_prof or ssh_prof or primary_profile
+
+    name = target_profile.get("a", "Config")
+    protocol = target_profile.get("b") or parts or "HTTP Custom"
+    host = target_profile.get("c", "N/A")
+    port = target_profile.get("d", 0)
+    username = target_profile.get("e", "")
+    password = target_profile.get("f", "")
+    sni = target_profile.get("g", "")
+    raw_h = target_profile.get("h", "")
+    inject_flag = str(target_profile.get("k", "0"))
     inject_mode = "PROXY" if inject_flag == "1" else "DIRECT"
     proxy_val = ""
     notes = protections.get("v") or protections.get("note") or ""
+
+    custom_payload = ""
+    if payload_prof and payload_prof != target_profile:
+        custom_payload = payload_prof.get("h", "")
 
     v2ray_proto = ""
     uuid = ""
@@ -227,15 +257,20 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
     ws_path = ""
     ws_host = ""
     tls_security = "none"
-    custom_payload = ""
     v2ray_link = ""
     is_tls = False
+    alter_id = "0"
 
-    if raw_h:
-        try:
-            if raw_h.strip().startswith("{") or raw_h.strip().startswith("["):
-                v2ray_data = json.loads(raw_h)
-                # Use remarks if present
+    all_raw_h = [p.get("h", "") for p in profiles if p.get("h")]
+    all_raw_e = [p.get("e", "") for p in profiles if p.get("e")]
+    all_raw_g = [p.get("g", "") for p in profiles if p.get("g")]
+    all_text = " ".join(all_raw_h + all_raw_e + all_raw_g)
+
+    # 1. Parse JSON configs inside any profile
+    for h_candidate in all_raw_h:
+        if h_candidate and (h_candidate.strip().startswith("{") or h_candidate.strip().startswith("[")):
+            try:
+                v2ray_data = json.loads(h_candidate)
                 if v2ray_data.get("remarks"):
                     name = v2ray_data["remarks"]
 
@@ -253,54 +288,147 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
                             users = v_srv.get("users", [])
                             if users:
                                 u0 = users[0]
-                                uuid = u0.get("id") or u0.get("password") or ""
+                                uuid = u0.get("id") or u0.get("password") or uuid
+                                alter_id = str(u0.get("alterId", "0"))
                                 if u0.get("security"):
                                     tls_security = u0.get("security")
+                                elif u0.get("encryption"):
+                                    tls_security = u0.get("encryption")
+
+                        servers = settings.get("servers", [])
+                        if servers:
+                            s_srv = servers[0]
+                            host = s_srv.get("address") or host
+                            port = s_srv.get("port") or port
+                            users = s_srv.get("users", [])
+                            if users:
+                                uuid = users[0].get("password") or users[0].get("id") or uuid
+                            elif s_srv.get("password"):
+                                password = s_srv.get("password")
 
                         stream = ob.get("streamSettings", {})
-                        network = (stream.get("network") or "ws").lower()
+                        if stream.get("network"):
+                            network = stream.get("network").lower()
                         stream_sec = stream.get("security", "")
                         if stream_sec:
                             tls_security = stream_sec
-                        is_tls = (stream_sec.lower() == "tls")
+                        if stream_sec.lower() == "tls" or port in [443, 8443, 2053, 2083, 2087, 2096]:
+                            is_tls = True
 
                         ws_settings = stream.get("wsSettings", {})
-                        ws_path = ws_settings.get("path", "")
+                        if ws_settings.get("path"):
+                            ws_path = ws_settings.get("path")
                         ws_headers = ws_settings.get("headers", {})
-                        ws_host = ws_headers.get("Host", "")
+                        if ws_headers.get("Host"):
+                            ws_host = ws_headers.get("Host")
 
                         tls_settings = stream.get("tlsSettings", {})
                         if tls_settings.get("serverName"):
                             sni = tls_settings.get("serverName")
+                        break
+            except Exception:
+                pass
+        else:
+            if not custom_payload and h_candidate.strip():
+                custom_payload = h_candidate.strip()
 
-                        # Construct 1-click import link
-                        if ob_proto == "vless" and uuid:
-                            qp = {"type": network, "security": "tls" if is_tls else "none"}
-                            if ws_path: qp["path"] = ws_path
-                            if ws_host: qp["host"] = ws_host
-                            if sni: qp["sni"] = sni
-                            qs = urllib.parse.urlencode(qp)
-                            v2ray_link = f"vless://{uuid}@{host}:{port}?{qs}#{urllib.parse.quote(name)}"
-                        elif ob_proto == "vmess" and uuid:
-                            vmess_dict = {
-                                "v": "2", "ps": name, "add": host, "port": str(port),
-                                "id": uuid, "aid": "0", "net": network, "type": "none",
-                                "host": ws_host, "path": ws_path, "tls": "tls" if is_tls else "",
-                                "sni": sni or ""
-                            }
-                            v2ray_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
-                        elif ob_proto == "trojan" and (uuid or password):
-                            auth_pw = uuid or password
-                            qp = {"type": network, "security": "tls" if is_tls else "none"}
-                            if ws_path: qp["path"] = ws_path
-                            if ws_host: qp["host"] = ws_host
-                            if sni: qp["sni"] = sni
-                            qs = urllib.parse.urlencode(qp)
-                            v2ray_link = f"trojan://{auth_pw}@{host}:{port}?{qs}#{urllib.parse.quote(name)}"
-            else:
-                custom_payload = raw_h
-        except Exception:
-            custom_payload = raw_h
+    # 2. Comprehensive Fallback for UUID
+    if not uuid:
+        for e_cand in all_raw_e:
+            uuid_match = re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", e_cand)
+            if uuid_match:
+                uuid = uuid_match.group(0)
+                break
+            elif len(e_cand) == 36 and e_cand.count("-") == 4:
+                uuid = e_cand
+                break
+
+    if not uuid:
+        uuid_match = re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", all_text)
+        if uuid_match:
+            uuid = uuid_match.group(0)
+
+    # 3. Comprehensive Fallback for PATH
+    if not ws_path:
+        path_m = re.search(r"\"path\"\s*:\s*\"([^\"]+)\"", all_text)
+        if path_m:
+            ws_path = path_m.group(1)
+        elif custom_payload:
+            payload_path = re.search(r"(?:GET|POST|CONNECT|HEAD)\s+([/\w\.\-\?=&%]+)", custom_payload)
+            if payload_path and payload_path.group(1).startswith("/"):
+                ws_path = payload_path.group(1)
+        if not ws_path and (uuid or "v2ray" in str(protocol).lower() or v2ray_proto):
+            ws_path = "/"
+
+    # 4. Comprehensive Fallback for HOST Header / SNI
+    if not ws_host:
+        host_m = re.search(r"\"Host\"\s*:\s*\"([^\"]+)\"", all_text, re.IGNORECASE)
+        if host_m:
+            ws_host = host_m.group(1)
+        elif custom_payload:
+            pl_host = re.search(r"Host:\s*([^\r\n\[\s]+)", custom_payload, re.IGNORECASE)
+            if pl_host:
+                ws_host = pl_host.group(1)
+        if not ws_host and sni and sni != "None":
+            ws_host = sni
+
+    # 5. Determine Active Protocol
+    is_v2ray = bool(uuid or "v2ray" in str(protocol).lower() or v2ray_proto or "v2ray" in str(parts).lower())
+    if is_v2ray:
+        if v2ray_proto:
+            active_proto = v2ray_proto
+        elif "vless" in all_text.lower():
+            active_proto = "VLESS"
+        elif "trojan" in all_text.lower():
+            active_proto = "TROJAN"
+        else:
+            active_proto = "VMESS"
+    elif "ssh" in str(protocol).lower() or "ssh" in str(parts).lower():
+        active_proto = "SSH"
+    elif "udp" in str(protocol).lower() or "udp-custom" in str(parts).lower():
+        active_proto = "UDP CUSTOM"
+    else:
+        active_proto = str(protocol).upper()
+
+    # 6. Generate 1-Click Ready Link
+    if active_proto == "VLESS" and uuid:
+        qp = {"type": network, "security": "tls" if is_tls else "none"}
+        if ws_path: qp["path"] = ws_path
+        if ws_host: qp["host"] = ws_host
+        if sni and sni != ws_host: qp["sni"] = sni
+        v2ray_link = f"vless://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+
+    elif active_proto == "VMESS" and uuid:
+        vmess_dict = {
+            "v": "2",
+            "ps": name,
+            "add": host,
+            "port": str(port),
+            "id": uuid,
+            "aid": alter_id,
+            "scy": tls_security if tls_security not in ["none", ""] else "chacha20-poly1305",
+            "net": network,
+            "type": "none",
+            "host": ws_host or "",
+            "path": ws_path or "/",
+            "tls": "tls" if is_tls else "none",
+            "sni": sni or ""
+        }
+        v2ray_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
+
+    elif active_proto == "TROJAN" and (uuid or password):
+        auth_pw = uuid or password
+        qp = {"type": network, "security": "tls" if is_tls else "none"}
+        if ws_path: qp["path"] = ws_path
+        if ws_host: qp["host"] = ws_host
+        if sni: qp["sni"] = sni
+        v2ray_link = f"trojan://{auth_pw}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+
+    elif active_proto == "SSH" and host and username:
+        v2ray_link = f"{host}:{port}@{username}:{password}"
+
+    elif active_proto == "UDP CUSTOM" and host and username:
+        v2ray_link = f"{host}:{port}@{username}:{password}"
 
     # Check unlock status for name display
     is_unlocked = (protections.get("a") == "normal" or not protections.get("a"))
@@ -318,11 +446,7 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
         except Exception:
             expiry_str = str(expiry_ms)
 
-    # 6. Build Clean, Styled Direct Telegram Message
-    active_proto = (v2ray_proto or protocol or "CONFIG").upper()
-    if "SSH" in active_proto:
-        active_proto = "SSH"
-
+    # 7. Build Clean, Styled Direct Telegram Message
     msg_lines = [
         "╔════════════════════════╗",
         f"   {active_proto} EXTRACTED INFO",
@@ -334,7 +458,7 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
 
     tls_str = "ON ✅" if is_tls else "OFF ❌"
 
-    if active_proto in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"]:
+    if is_v2ray or active_proto in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"]:
         if host and host != "N/A":
             msg_lines.append(f"📍 ADDRESS : {html_escape(host)}")
         if uuid:
@@ -368,8 +492,18 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
         if sni and sni != "None":
             msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
+    elif active_proto == "UDP CUSTOM":
+        msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
+        msg_lines.append(f"🔌 PORT    : {port}")
+        if username:
+            msg_lines.append(f"👤 USER    : {html_escape(username)}")
+        if password:
+            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
+        if sni and sni != "None":
+            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+
     else:
-        # Fallback generic info
         msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
         msg_lines.append(f"🔌 PORT    : {port}")
         if username:
@@ -389,18 +523,20 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
         ])
 
     # Ready Link block
-    ready_link = v2ray_link
-    if active_proto == "SSH" and host and username:
-        ready_link = f"{host}:{port}@{username}:{password}"
+    if v2ray_link:
+        link_title = "🔗 READY LINK:"
+        if active_proto == "SSH":
+            link_title = "🔐 SSH READY LINK:"
+        elif active_proto == "UDP CUSTOM":
+            link_title = "🔗 UDP READY LINK:"
 
-    if ready_link:
         msg_lines.extend([
             "",
             "────────────────────────",
-            "🔐 SSH READY LINK:" if active_proto == "SSH" else "🔗 READY LINK:",
+            link_title,
             "────────────────────────",
             "",
-            f"<code>{ready_link}</code>"
+            f"<code>{v2ray_link}</code>"
         ])
 
     # Notes & Expiry
@@ -411,9 +547,10 @@ def decrypt_hc_file(raw_content: bytes) -> Dict[str, Any]:
         ])
 
     if notes and notes.strip() and notes.strip() != "None":
+        clean_note = html_escape(notes.strip()[:500])
         msg_lines.extend([
             "",
-            f"📝 NOTE    : {html_escape(notes.strip())}"
+            f"📝 NOTE    : {clean_note}"
         ])
 
     styled_message = "\n".join(msg_lines)

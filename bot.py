@@ -583,13 +583,28 @@ def start_bot():
             res = decrypt_hc_file(downloaded_bytes)
 
             # Send clean, styled direct message replying to the uploaded file
-            bot.send_message(
-                chat_id,
-                res["styled_message"],
-                reply_to_message_id=message.message_id,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+            msg_text = res["styled_message"]
+            if len(msg_text) > 4000:
+                msg_text = msg_text[:3990] + "..."
+
+            try:
+                bot.send_message(
+                    chat_id,
+                    msg_text,
+                    reply_to_message_id=message.message_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
+            except Exception as e_send:
+                print(f"[!] HTML send error: {e_send}, sending plain text...")
+                clean_text = msg_text.replace("<code>", "").replace("</code>", "").replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+                bot.send_message(
+                    chat_id,
+                    clean_text,
+                    reply_to_message_id=message.message_id,
+                    disable_web_page_preview=True
+                )
+
             try:
                 bot.delete_message(chat_id, status_msg.message_id)
             except Exception:
