@@ -3,7 +3,7 @@
 =============================================================================
   TELEGRAM VPN DECRYPTOR BOT (FOR RENDER DEPLOYMENT)
   By         : @Foridul_002 🇧🇩
-  Version    : 3.8 (HTTP Custom .hc + 8 Live OTA VPN Engines + Admin Audit)
+  Version    : 4.0 (HTTP Custom .hc + Dark Tunnel .dark + HTTP Injector .ehi + 8 Live VPNs)
 =============================================================================
 """
 
@@ -39,7 +39,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "✅ VPN Decryptor Bot (v3.8 - HTTP Custom .hc File Decryptor & Real-time Admin Reporting Active) is running 24/7 on Render!"
+    return "✅ VPN Decryptor Bot (v4.0 - HTTP Custom .hc, Dark Tunnel .dark, HTTP Injector .ehi Decryptors & Admin Reporting Active) is running 24/7 on Render!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -64,6 +64,8 @@ from engine_sensei_izph import decrypt_sensei_tunnel_live, decrypt_izph_vpn_pro_
 from engine_iptunnel import decrypt_iptunnel_live
 from boost_vpn import decrypt_boost_vpn_live
 from engine_httpcustom import decrypt_hc_file
+from engine_darktunnel import decrypt_dark_file
+from engine_httpinjector import decrypt_ehi_file
 
 
 # ================= ADMIN AUDIT & REPORTING SYSTEM =================
@@ -130,6 +132,8 @@ def get_vpn_markup() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
         InlineKeyboardButton("📁 HTTP Custom (.hc File Decryptor)", callback_data="dec_httpcustom"),
+        InlineKeyboardButton("📁 Dark Tunnel (.dark File Decryptor)", callback_data="dec_darktunnel"),
+        InlineKeyboardButton("📁 HTTP Injector (.ehi File Decryptor)", callback_data="dec_httpinjector"),
         InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
         InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
         InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
@@ -159,7 +163,7 @@ def start_bot():
             f"👋 <b>Welcome {user_name}!</b>\n\n"
             "🤖 <b>VPN Config Decryptor Bot</b>\n"
             "<i>By: @Foridul_002 🇧🇩</i>\n\n"
-            "Select an online VPN to decrypt or send any <b>.hc (HTTP Custom)</b> file:"
+            "Select an online VPN to decrypt or send any <b>.hc / .dark / .ehi</b> file:"
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
@@ -172,7 +176,7 @@ def start_bot():
                 f"👑 <b>Admin Control Panel</b>\n\n"
                 f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
                 f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
-                f"⚡ <b>Engine Version:</b> <code>v3.8 (HTTP Custom .hc Active)</code>\n"
+                f"⚡ <b>Engine Version:</b> <code>v4.0 (.hc, .dark, .ehi Active)</code>\n"
                 f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>\n\n"
                 f"<i>All bot usage, user decryptions, successes & failures are sent to this chat in real time!</i>"
             )
@@ -189,7 +193,7 @@ def start_bot():
             markup = get_vpn_markup()
             markup.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main"))
             bot.edit_message_text(
-                "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc</b> file:",
+                "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc / .dark / .ehi</b> file:",
                 chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=markup
@@ -209,7 +213,7 @@ def start_bot():
             bot.answer_callback_query(call.id, "📁 HTTP Custom (.hc) File Decryptor")
             info_text = (
                 "📁 <b>HTTP Custom (.hc) Config Decryptor</b>\n\n"
-                "ℹ️ <i>HTTP Custom does not have online built-in servers. It uses custom encrypted <code>.hc</code> configuration files.</i>\n\n"
+                "ℹ️ <i>HTTP Custom uses custom encrypted <code>.hc</code> configuration files.</i>\n\n"
                 "📤 <b>How to Decrypt:</b>\n"
                 "Simply <b>send or forward</b> any <code>.hc</code> file directly to this chat!\n\n"
                 "⚡ <b>The bot will automatically:</b>\n"
@@ -217,7 +221,41 @@ def start_bot():
                 "  • Unpack binary HPC1 profiles & containers\n"
                 "  • Extract Host, Port, V2Ray UUID, SSH Passwords & SNI\n"
                 "  • Extract hidden HTTP Payloads & WS Headers\n"
-                "  • Deliver a clean, decrypted text file instantly!\n\n"
+                "  • Deliver clean, copyable credentials and ready links!\n\n"
+                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            )
+            bot.send_message(chat_id, info_text)
+
+        elif call.data == "dec_darktunnel":
+            bot.answer_callback_query(call.id, "📁 Dark Tunnel (.dark) File Decryptor")
+            info_text = (
+                "📁 <b>Dark Tunnel (.dark) Config Decryptor</b>\n\n"
+                "ℹ️ <i>Dark Tunnel uses custom encrypted <code>.dark</code> configuration files (AES-CFB + MsgPack).</i>\n\n"
+                "📤 <b>How to Decrypt:</b>\n"
+                "Simply <b>send or forward</b> any <code>.dark</code> file directly to this chat!\n\n"
+                "⚡ <b>The bot will automatically:</b>\n"
+                "  • Break 2-Layer AES-CFB (256-bit + 192-bit) crypto\n"
+                "  • Unpack binary MsgPack containers & V2Ray outbounds\n"
+                "  • Extract VLESS / VMess / Trojan / SSH credentials\n"
+                "  • Extract hidden Payloads, SNI, WS paths & Proxies\n"
+                "  • Generate instant 1-click importable ready links!\n\n"
+                "🤖 <b>By:</b> @Foridul_002 🇧🇩"
+            )
+            bot.send_message(chat_id, info_text)
+
+        elif call.data == "dec_httpinjector":
+            bot.answer_callback_query(call.id, "📁 HTTP Injector (.ehi) File Decryptor")
+            info_text = (
+                "📁 <b>HTTP Injector (.ehi) Config Decryptor</b>\n\n"
+                "ℹ️ <i>HTTP Injector uses multi-layer encrypted <code>.ehi</code> configuration files.</i>\n\n"
+                "📤 <b>How to Decrypt:</b>\n"
+                "Simply <b>send or forward</b> any <code>.ehi</code> file directly to this chat!\n\n"
+                "⚡ <b>The bot will automatically:</b>\n"
+                "  • Break Layer 1 & Layer 2 AES-CBC + XXTEA crypto\n"
+                "  • Reverse Argon2id KDF + ChaCha20-Poly1305\n"
+                "  • Decode custom alphabet Base64 + XOR salt translation\n"
+                "  • Extract SSH, DNSTT, V2Ray credentials & Payloads\n"
+                "  • Generate instant 1-click copyable links & configs!\n\n"
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
             bot.send_message(chat_id, info_text)
@@ -563,16 +601,27 @@ def start_bot():
     def handle_incoming_document(message):
         chat_id = message.chat.id
         doc = message.document
-        file_name = doc.file_name or "config.hc"
+        file_name = doc.file_name or "config"
+        ext = os.path.splitext(file_name.lower())[1]
 
-        # Silently ignore non-.hc files without sending any response
-        if not file_name.lower().endswith(".hc"):
+        # Silently ignore non-supported files without sending any response
+        if ext not in [".hc", ".dark", ".ehi"]:
             return
+
+        if ext == ".hc":
+            target_app = "HTTP Custom (.hc Upload)"
+            crypto_info = "🔐 Breaking XChaCha20-Poly1305 + HKDF native crypto..."
+        elif ext == ".dark":
+            target_app = "Dark Tunnel (.dark Upload)"
+            crypto_info = "🔐 Breaking 2-Layer AES-CFB (256/192-bit) + MsgPack..."
+        elif ext == ".ehi":
+            target_app = "HTTP Injector (.ehi Upload)"
+            crypto_info = "🔐 Breaking AES-CBC + XXTEA + Argon2id/ChaCha20 crypto..."
 
         status_msg = bot.reply_to(
             message,
             f"⏳ <b>Analyzing & Decrypting <code>{html_escape(file_name)}</code>...</b>\n"
-            "🔐 Breaking XChaCha20-Poly1305 + HKDF native crypto...\n"
+            f"{crypto_info}\n"
             "Please wait a few seconds."
         )
 
@@ -580,7 +629,12 @@ def start_bot():
             file_info = bot.get_file(doc.file_id)
             downloaded_bytes = bot.download_file(file_info.file_path)
 
-            res = decrypt_hc_file(downloaded_bytes)
+            if ext == ".hc":
+                res = decrypt_hc_file(downloaded_bytes)
+            elif ext == ".dark":
+                res = decrypt_dark_file(downloaded_bytes)
+            elif ext == ".ehi":
+                res = decrypt_ehi_file(downloaded_bytes)
 
             # Send clean, styled direct message replying to the uploaded file
             msg_text = res["styled_message"]
@@ -615,20 +669,21 @@ def start_bot():
             protocol = res.get("protocol", "Unknown")
             details = (
                 f"File: {file_name}\n"
+                f"App: {target_app}\n"
                 f"Creator: {creator}\n"
                 f"Protocol: {protocol}\n"
                 f"Server: {res.get('server_host', 'N/A')}:{res.get('server_port', 0)}\n"
                 f"Size: {len(downloaded_bytes)} bytes"
             )
-            send_admin_report_async(bot, message.from_user, "HTTP Custom (.hc Upload)", "SUCCESS", details=details)
+            send_admin_report_async(bot, message.from_user, target_app, "SUCCESS", details=details)
 
         except Exception as e:
             bot.edit_message_text(
-                f"❌ <b>HTTP Custom Decryption Failed!</b>\nError: <code>{html_escape(str(e))}</code>",
+                f"❌ <b>{target_app} Decryption Failed!</b>\nError: <code>{html_escape(str(e))}</code>",
                 chat_id=chat_id,
                 message_id=status_msg.message_id
             )
-            send_admin_report_async(bot, message.from_user, "HTTP Custom (.hc Upload)", "FAILED", details=str(e))
+            send_admin_report_async(bot, message.from_user, target_app, "FAILED", details=str(e))
 
     # ================= GENERAL TEXT MESSAGES =================
     @bot.message_handler(func=lambda m: True)
@@ -637,7 +692,7 @@ def start_bot():
         markup = get_vpn_markup()
         bot.reply_to(
             message,
-            "🤖 <b>Please choose an option from the menu or send an .hc file:</b>",
+            "🤖 <b>Please choose an option from the menu or send an .hc / .dark / .ehi file:</b>",
             reply_markup=markup
         )
 
