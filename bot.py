@@ -131,37 +131,37 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
 
 def get_vpn_markup() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
-    # 📁 Config File Decryptors (2 Columns)
+    # 📁 Config File Decryptors (2 Columns - Primary Blue)
     markup.row(
-        InlineKeyboardButton("📁 HTTP Custom", callback_data="dec_httpcustom"),
-        InlineKeyboardButton("🌑 Dark Tunnel", callback_data="dec_darktunnel")
+        InlineKeyboardButton("📁 HTTP Custom", callback_data="dec_httpcustom", style="primary"),
+        InlineKeyboardButton("🌑 Dark Tunnel", callback_data="dec_darktunnel", style="primary")
     )
     markup.row(
-        InlineKeyboardButton("💉 HTTP Injector", callback_data="dec_httpinjector"),
-        InlineKeyboardButton("⚡ NapsternetV", callback_data="dec_npv")
+        InlineKeyboardButton("💉 HTTP Injector", callback_data="dec_httpinjector", style="primary"),
+        InlineKeyboardButton("⚡ NapsternetV", callback_data="dec_npv", style="primary")
     )
-    # 🌐 Live Server VPNs (2 Columns)
+    # 🌐 Live Server VPNs (2 Columns - Primary Blue)
     markup.row(
-        InlineKeyboardButton("🛡️ MM Tunnel", callback_data="dec_mmtunnel"),
-        InlineKeyboardButton("💎 TeriX VPN", callback_data="dec_terix")
-    )
-    markup.row(
-        InlineKeyboardButton("🐻 Ursa Net PRO", callback_data="dec_ursanet"),
-        InlineKeyboardButton("🎯 VIP Sniper", callback_data="dec_vipsniper")
+        InlineKeyboardButton("🛡️ MM Tunnel", callback_data="dec_mmtunnel", style="primary"),
+        InlineKeyboardButton("💎 TeriX VPN", callback_data="dec_terix", style="primary")
     )
     markup.row(
-        InlineKeyboardButton("🥋 Sensei Tunnel", callback_data="dec_sensei"),
-        InlineKeyboardButton("🛡️ IZPH PRO", callback_data="dec_izph")
+        InlineKeyboardButton("🐻 Ursa Net PRO", callback_data="dec_ursanet", style="primary"),
+        InlineKeyboardButton("🎯 VIP Sniper", callback_data="dec_vipsniper", style="primary")
     )
     markup.row(
-        InlineKeyboardButton("🚀 IPTunnel Alpha", callback_data="dec_iptunnel"),
-        InlineKeyboardButton("⚡ Boost VPN", callback_data="dec_boostvpn")
+        InlineKeyboardButton("🥋 Sensei Tunnel", callback_data="dec_sensei", style="primary"),
+        InlineKeyboardButton("🛡️ IZPH PRO", callback_data="dec_izph", style="primary")
     )
-    # 🎮 Action Controls Bar (3 Columns - exactly like pro bots)
     markup.row(
-        InlineKeyboardButton("👑 Admin", callback_data="btn_admin"),
-        InlineKeyboardButton("🔄 Refresh", callback_data="btn_refresh"),
-        InlineKeyboardButton("❌ Close", callback_data="btn_close")
+        InlineKeyboardButton("🚀 IPTunnel Alpha", callback_data="dec_iptunnel", style="primary"),
+        InlineKeyboardButton("⚡ Boost VPN", callback_data="dec_boostvpn", style="primary")
+    )
+    # 🎮 Action Controls Bar (3 Columns - Blue, Green, Red)
+    markup.row(
+        InlineKeyboardButton("👑 Admin", callback_data="btn_admin", style="primary"),
+        InlineKeyboardButton("🔄 Refresh", callback_data="btn_refresh", style="success"),
+        InlineKeyboardButton("❌ Close", callback_data="btn_close", style="danger")
     )
     return markup
 
@@ -211,7 +211,7 @@ def start_bot():
 
         if call.data == "vpn_list":
             markup = get_vpn_markup()
-            markup.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main"))
+            markup.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_main", style="primary"))
             bot.edit_message_text(
                 "📋 <b>Available VPN List:</b>\n\nSelect a VPN to decrypt or send an <b>.hc / .dark / .ehi / .npv</b> file:",
                 chat_id=chat_id,
@@ -221,7 +221,7 @@ def start_bot():
 
         elif call.data == "back_main":
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🌐 VPN List", callback_data="vpn_list"))
+            markup.add(InlineKeyboardButton("🌐 VPN List", callback_data="vpn_list", style="primary"))
             bot.edit_message_text(
                 "🤖 <b>Main Menu</b>\n\nClick the <b>'VPN List'</b> button below:",
                 chat_id=chat_id,
