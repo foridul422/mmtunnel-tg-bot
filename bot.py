@@ -130,20 +130,38 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
 
 
 def get_vpn_markup() -> InlineKeyboardMarkup:
-    markup = InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        InlineKeyboardButton("📁 HTTP Custom (.hc File Decryptor)", callback_data="dec_httpcustom"),
-        InlineKeyboardButton("📁 Dark Tunnel (.dark File Decryptor)", callback_data="dec_darktunnel"),
-        InlineKeyboardButton("📁 HTTP Injector (.ehi File Decryptor)", callback_data="dec_httpinjector"),
-        InlineKeyboardButton("📁 NapsternetV (.npv / .npvt / .npvs / .npv4)", callback_data="dec_npv"),
-        InlineKeyboardButton("🛡️ MM Tunnel VPN", callback_data="dec_mmtunnel"),
-        InlineKeyboardButton("🛡️ TeriX VPN", callback_data="dec_terix"),
-        InlineKeyboardButton("🛡️ Ursa Net PRO", callback_data="dec_ursanet"),
-        InlineKeyboardButton("🎯 VIP Sniper Pro", callback_data="dec_vipsniper"),
-        InlineKeyboardButton("🥋 Sensei Tunnel (Live API)", callback_data="dec_sensei"),
-        InlineKeyboardButton("🛡️ IZPH VPN PRO (Live API)", callback_data="dec_izph"),
-        InlineKeyboardButton("🚀 IPTunnel - Alpha (Live API)", callback_data="dec_iptunnel"),
-        InlineKeyboardButton("⚡ Boost VPN (Live GitHub)", callback_data="dec_boostvpn")
+    markup = InlineKeyboardMarkup()
+    # 📁 Config File Decryptors (2 Columns)
+    markup.row(
+        InlineKeyboardButton("📁 HTTP Custom", callback_data="dec_httpcustom"),
+        InlineKeyboardButton("🌑 Dark Tunnel", callback_data="dec_darktunnel")
+    )
+    markup.row(
+        InlineKeyboardButton("💉 HTTP Injector", callback_data="dec_httpinjector"),
+        InlineKeyboardButton("⚡ NapsternetV", callback_data="dec_npv")
+    )
+    # 🌐 Live Server VPNs (2 Columns)
+    markup.row(
+        InlineKeyboardButton("🛡️ MM Tunnel", callback_data="dec_mmtunnel"),
+        InlineKeyboardButton("💎 TeriX VPN", callback_data="dec_terix")
+    )
+    markup.row(
+        InlineKeyboardButton("🐻 Ursa Net PRO", callback_data="dec_ursanet"),
+        InlineKeyboardButton("🎯 VIP Sniper", callback_data="dec_vipsniper")
+    )
+    markup.row(
+        InlineKeyboardButton("🥋 Sensei Tunnel", callback_data="dec_sensei"),
+        InlineKeyboardButton("🛡️ IZPH PRO", callback_data="dec_izph")
+    )
+    markup.row(
+        InlineKeyboardButton("🚀 IPTunnel Alpha", callback_data="dec_iptunnel"),
+        InlineKeyboardButton("⚡ Boost VPN", callback_data="dec_boostvpn")
+    )
+    # 🎮 Action Controls Bar (3 Columns - exactly like pro bots)
+    markup.row(
+        InlineKeyboardButton("👑 Admin", callback_data="btn_admin"),
+        InlineKeyboardButton("🔄 Refresh", callback_data="btn_refresh"),
+        InlineKeyboardButton("❌ Close", callback_data="btn_close")
     )
     return markup
 
@@ -278,6 +296,47 @@ def start_bot():
                 "🤖 <b>By:</b> @Foridul_002 🇧🇩"
             )
             bot.send_message(chat_id, info_text)
+
+        elif call.data == "btn_close":
+            bot.answer_callback_query(call.id, "Menu Closed ❌")
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+
+        elif call.data == "btn_refresh":
+            bot.answer_callback_query(call.id, "Menu Refreshed 🔄")
+            markup = get_vpn_markup()
+            user_name = call.from_user.first_name or "User"
+            welcome_text = (
+                f"👋 <b>Welcome {user_name}!</b>\n\n"
+                "🤖 <b>VPN Config Decryptor Bot</b>\n"
+                "<i>By: @Foridul_002 🇧🇩</i>\n\n"
+                "Select an online VPN to decrypt or send any <b>.hc / .dark / .ehi / .npv</b> file:"
+            )
+            try:
+                bot.edit_message_text(
+                    welcome_text,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=markup
+                )
+            except Exception:
+                pass
+
+        elif call.data == "btn_admin":
+            if str(call.from_user.id) == str(ADMIN_ID):
+                bot.answer_callback_query(call.id, "👑 Welcome Admin!")
+                bot.send_message(
+                    chat_id,
+                    f"👑 <b>Admin Control Panel</b>\n\n"
+                    f"🆔 <b>Admin ID:</b> <code>{ADMIN_ID}</code>\n"
+                    f"📊 <b>Audit Reports:</b> <code>ACTIVE ✅</code>\n"
+                    f"⚡ <b>Engine Version:</b> <code>v4.2 (Full Decryptors + UI Grid Active)</code>\n"
+                    f"🌍 <b>Timezone:</b> <code>Asia/Dhaka (BST, UTC+6)</code>"
+                )
+            else:
+                bot.answer_callback_query(call.id, "⛔ Restrict: Admin Only!", show_alert=True)
 
         elif call.data == "dec_mmtunnel":
             bot.answer_callback_query(call.id, "⏳ Fetching & Decrypting MM Tunnel Config...")
