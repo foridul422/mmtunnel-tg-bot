@@ -128,7 +128,9 @@ class DTDecryptor:
 
 def decrypt_dark_file(file_bytes: bytes) -> Dict[str, Any]:
     """
-    Decrypts Dark Tunnel (.dark) file and produces clean styled Telegram message.
+    Decrypts Dark Tunnel (.dark) file and produces clean styled Telegram message
+    without ANY filtering - extracting V2Ray (VLESS/VMess/Trojan/SS), SSH, DNSTT,
+    Payload, Proxy, and generating all ready-to-import links.
     """
     data = DTDecryptor.parse_raw(file_bytes)
     if not data:
@@ -145,124 +147,177 @@ def decrypt_dark_file(file_bytes: bytes) -> Dict[str, Any]:
     ssh_cfg = inner_config.get("SshConfig", {})
     v2ray_cfg = inner_config.get("V2RayConfig", {}).get("EncryptedConfig", {})
 
-    # Extract common connection fields
-    host = ""
-    port = 0
-    username = ""
-    password = ""
-    uuid = ""
-    ws_host = ""
-    ws_path = "/"
-    network = "ws"
-    tls_security = "none"
+    def _clean_str(val: Any) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, list):
+            return str(val[0]).strip() if val else ""
+        if isinstance(val, (bytes, bytearray)):
+            try:
+                return val.decode("utf-8").strip()
+            except Exception:
+                return ""
+        return str(val).strip()
+
+    # Common Connection Fields
+    v2_protocol = ""
+    v2_host = ""
+    v2_port = 0
+    v2_uuid = ""
+    v2_security = ""
+    v2_network = "ws"
+    v2_path = "/"
+    v2_ws_host = ""
+    v2_sni = ""
     is_tls = False
-    custom_payload = ""
-    inject_mode = inject_cfg.get("EncryptedMode", "DIRECT")
-    proxy_val = ""
-    sni = ""
-    ready_link = ""
+    v2_method = ""
 
-    # Check payload
-    if inject_cfg.get("EncryptedPayload"):
-        pl = inject_cfg["EncryptedPayload"]
-        if isinstance(pl, str) and pl.strip():
-            custom_payload = pl.strip()
-
-    # Check proxy
-    p_host = inject_cfg.get("EncryptedProxyHost")
-    p_port = inject_cfg.get("EncryptedProxyPort")
-    if p_host and p_host != "localhost":
-        proxy_val = f"{p_host}:{p_port}" if p_port else p_host
-
-    # Check SNI
-    if inject_cfg.get("EncryptedServerNameIndication"):
-        sni_candidate = inject_cfg["EncryptedServerNameIndication"]
-        if isinstance(sni_candidate, str):
-            sni = sni_candidate
-        elif isinstance(sni_candidate, list) and sni_candidate:
-            sni = str(sni_candidate[0])
-
-    # 1. Parse V2Ray Config if present
-    is_v2ray = bool(v2ray_cfg and v2ray_cfg.get("outbounds"))
-    if is_v2ray:
+    # 1. Parse V2Ray Config (supports outbounds with vnext AND servers)
+    has_v2ray = bool(v2ray_cfg and isinstance(v2ray_cfg, dict) and v2ray_cfg.get("outbounds"))
+    if has_v2ray:
         outbounds = v2ray_cfg.get("outbounds", [])
         for ob in outbounds:
-            ob_proto = ob.get("protocol", "").lower()
-            if ob_proto in ["vless", "vmess", "trojan"]:
-                config_type = ob_proto.upper()
-                settings = ob.get("settings", {})
-                vnext = settings.get("vnext", [])
-                if vnext:
-                    host = vnext[0].get("address") or host
-                    port = vnext[0].get("port") or port
-                    users = vnext[0].get("users", [])
-                    if users:
-                        uuid = users[0].get("id") or users[0].get("password") or ""
-                        if users[0].get("security"):
-                            tls_security = users[0].get("security")
+            proto = ob.get("protocol", "").lower()
+            if not proto or proto in ["freedom", "blackhole"]:
+                continue
+            v2_protocol = proto.upper()
+            settings = ob.get("settings", {})
 
-                stream = ob.get("streamSettings", {})
-                if stream.get("network"):
-                    network = stream.get("network").lower()
-                sec = stream.get("security", "")
-                if sec:
-                    tls_security = sec
-                is_tls = (sec.lower() == "tls")
+            # Strategy A: vnext (Used in VLESS, VMess)
+            vnext = settings.get("vnext", [])
+            if vnext and isinstance(vnext, list):
+                first_vn = vnext[0]
+                v2_host = _clean_str(first_vn.get("address")) or v2_host
+                v2_port = first_vn.get("port") or v2_port
+                users = first_vn.get("users", [])
+                if users and isinstance(users, list):
+                    v2_uuid = _clean_str(users[0].get("id") or users[0].get("password")) or v2_uuid
+                    v2_security = _clean_str(users[0].get("security") or users[0].get("encryption")) or v2_security
 
-                ws_settings = stream.get("wsSettings", {})
-                if ws_settings.get("path"):
-                    ws_path = ws_settings.get("path")
-                ws_headers = ws_settings.get("headers", {})
-                if ws_headers.get("Host"):
-                    ws_host = ws_headers.get("Host")
+            # Strategy B: servers (Used in Trojan, Shadowsocks, Socks)
+            servers = settings.get("servers", [])
+            if servers and isinstance(servers, list):
+                first_srv = servers[0]
+                v2_host = _clean_str(first_srv.get("address")) or v2_host
+                v2_port = first_srv.get("port") or v2_port
+                v2_uuid = _clean_str(first_srv.get("password") or first_srv.get("id")) or v2_uuid
+                v2_method = _clean_str(first_srv.get("method")) or v2_method
+                v2_security = _clean_str(first_srv.get("security")) or v2_security
 
-                tls_st = stream.get("tlsSettings", {})
-                if tls_st.get("serverName"):
-                    sni = tls_st.get("serverName")
+            # StreamSettings
+            stream = ob.get("streamSettings", {})
+            if stream.get("network"):
+                v2_network = str(stream.get("network")).lower()
+            sec = str(stream.get("security", "")).lower()
+            if sec:
+                v2_security = sec
+            is_tls = (sec in ["tls", "reality"])
+
+            # WebSockets
+            ws_st = stream.get("wsSettings", {})
+            if ws_st.get("path"):
+                v2_path = _clean_str(ws_st.get("path"))
+            ws_headers = ws_st.get("headers", {})
+            if ws_headers and isinstance(ws_headers, dict):
+                v2_ws_host = _clean_str(ws_headers.get("Host") or ws_headers.get("host"))
+
+            # gRPC
+            grpc_st = stream.get("grpcSettings", {})
+            if grpc_st.get("serviceName"):
+                v2_path = _clean_str(grpc_st.get("serviceName"))
+
+            # TLS SNI
+            tls_st = stream.get("tlsSettings", {})
+            if tls_st.get("serverName"):
+                v2_sni = _clean_str(tls_st.get("serverName"))
+
+            # Reality
+            reality_st = stream.get("realitySettings", {})
+            if reality_st.get("serverName"):
+                v2_sni = _clean_str(reality_st.get("serverName"))
+
+            if v2_protocol and (v2_host or v2_uuid):
                 break
 
-    # 2. Parse SSH Config if present
-    if not host and ssh_cfg:
-        ssh_h = ssh_cfg.get("EncryptedHost")
-        if isinstance(ssh_h, str):
-            host = ssh_h
-        elif isinstance(ssh_h, list) and ssh_h:
-            host = str(ssh_h[0])
+    # 2. Parse SSH Config
+    ssh_host = ""
+    ssh_port = 0
+    ssh_user = ""
+    ssh_pass = ""
+    if ssh_cfg and isinstance(ssh_cfg, dict):
+        ssh_host = _clean_str(ssh_cfg.get("EncryptedHost"))
+        ssh_port = ssh_cfg.get("EncryptedPort", 0)
+        ssh_user = _clean_str(ssh_cfg.get("EncryptedUsername"))
+        ssh_pass = _clean_str(ssh_cfg.get("EncryptedPassword"))
 
-        port = ssh_cfg.get("EncryptedPort", 80)
-        u_cand = ssh_cfg.get("EncryptedUsername")
-        if isinstance(u_cand, str):
-            username = u_cand
-        elif isinstance(u_cand, list) and u_cand:
-            username = str(u_cand[0])
+    # 3. Parse DNSTT / SlowDNS Config
+    dnstt_dns = _clean_str(inject_cfg.get("EncryptedDnsttDnsHost"))
+    dnstt_port = _clean_str(inject_cfg.get("EncryptedDnsttDnsPort")) or "53"
+    dnstt_ns = _clean_str(inject_cfg.get("EncryptedDnsttServerName"))
+    dnstt_pubkey = _clean_str(inject_cfg.get("EncryptedDnsttPubkey"))
 
-        p_cand = ssh_cfg.get("EncryptedPassword")
-        if isinstance(p_cand, str):
-            password = p_cand
-        elif isinstance(p_cand, list) and p_cand:
-            password = str(p_cand[0])
+    # 4. Parse Inject Mode, Payload, Proxy & SNI
+    inject_mode = _clean_str(inject_cfg.get("EncryptedMode")) or "DIRECT"
+    custom_payload = _clean_str(inject_cfg.get("EncryptedPayload"))
+    p_host = _clean_str(inject_cfg.get("EncryptedProxyHost"))
+    p_port = _clean_str(inject_cfg.get("EncryptedProxyPort"))
+    proxy_val = f"{p_host}:{p_port}" if (p_host and p_host != "localhost" and p_port) else (p_host if p_host != "localhost" else "")
+    sni = _clean_str(inject_cfg.get("EncryptedServerNameIndication")) or v2_sni
 
-    # 3. Generate 1-Click Ready Link
-    if config_type == "VLESS" and uuid and host:
-        qp = {"type": network, "security": "tls" if is_tls else "none"}
-        if ws_path: qp["path"] = ws_path
-        if ws_host: qp["host"] = ws_host
-        if sni and sni != ws_host: qp["sni"] = sni
-        ready_link = f"vless://{uuid}@{host}:{port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+    # Fallback host/port/uuid
+    primary_proto = v2_protocol or config_type
+    if not v2_host and ssh_host:
+        v2_host = ssh_host
+    if not v2_port and ssh_port:
+        v2_port = ssh_port
 
-    elif config_type == "VMESS" and uuid and host:
+    # 5. Generate 1-Click Ready Links (VLESS, VMESS, TROJAN, SS, SSH)
+    ready_links = []
+
+    # Trojan
+    if (v2_protocol == "TROJAN" or primary_proto == "TROJAN") and v2_uuid and v2_host:
+        qp = {}
+        if v2_network: qp["type"] = v2_network
+        qp["security"] = "tls" if is_tls else "none"
+        if v2_path: qp["path"] = v2_path
+        if v2_ws_host: qp["host"] = v2_ws_host
+        if sni and sni != v2_ws_host: qp["sni"] = sni
+        trojan_link = f"trojan://{v2_uuid}@{v2_host}:{v2_port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+        ready_links.append(trojan_link)
+
+    # VLESS
+    elif (v2_protocol == "VLESS" or primary_proto == "VLESS") and v2_uuid and v2_host:
+        qp = {"type": v2_network, "security": "tls" if is_tls else "none"}
+        if v2_path: qp["path"] = v2_path
+        if v2_ws_host: qp["host"] = v2_ws_host
+        if sni and sni != v2_ws_host: qp["sni"] = sni
+        vless_link = f"vless://{v2_uuid}@{v2_host}:{v2_port}?{urllib.parse.urlencode(qp)}#{urllib.parse.quote(name)}"
+        ready_links.append(vless_link)
+
+    # VMess
+    elif (v2_protocol == "VMESS" or primary_proto == "VMESS") and v2_uuid and v2_host:
         vmess_dict = {
-            "v": "2", "ps": name, "add": host, "port": str(port),
-            "id": uuid, "aid": "0", "scy": tls_security if tls_security not in ["none", ""] else "chacha20-poly1305",
-            "net": network, "type": "none", "host": ws_host or "",
-            "path": ws_path or "/", "tls": "tls" if is_tls else "none", "sni": sni or ""
+            "v": "2", "ps": name, "add": v2_host, "port": str(v2_port),
+            "id": v2_uuid, "aid": "0", "scy": v2_security if v2_security not in ["none", ""] else "auto",
+            "net": v2_network, "type": "none", "host": v2_ws_host or "",
+            "path": v2_path or "/", "tls": "tls" if is_tls else "none", "sni": sni or ""
         }
-        ready_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
+        vmess_link = "vmess://" + base64.b64encode(json.dumps(vmess_dict).encode()).decode()
+        ready_links.append(vmess_link)
 
-    elif config_type in ["SSH", "SSH_DNSTT"] and host and username:
-        ready_link = f"{host}:{port}@{username}:{password}"
+    # Shadowsocks
+    elif (v2_protocol in ["SHADOWSOCKS", "SS"] or primary_proto in ["SHADOWSOCKS", "SS"]) and v2_uuid and v2_host:
+        ss_method = v2_method or "aes-256-gcm"
+        ss_auth = base64.b64encode(f"{ss_method}:{v2_uuid}@{v2_host}:{v2_port}".encode()).decode()
+        ready_links.append(f"ss://{ss_auth}#{urllib.parse.quote(name)}")
 
-    # Expiry parsing
+    # SSH Ready Link
+    if ssh_user and (ssh_host or dnstt_ns):
+        ssh_target = ssh_host or dnstt_ns
+        ssh_ready = f"{ssh_target}:{ssh_port}@{ssh_user}:{ssh_pass}"
+        ready_links.append(ssh_ready)
+
+    # Expiry
     exp_ms = app_config.get("ExpiredAtTimestamp")
     expiry_str = ""
     if exp_ms and int(exp_ms) > 0:
@@ -272,15 +327,16 @@ def decrypt_dark_file(file_bytes: bytes) -> Dict[str, Any]:
         except Exception:
             expiry_str = str(exp_ms)
 
-    # Clean note message
+    # Note
     raw_msg = app_config.get("Message", "")
     clean_note = re.sub(r'<[^>]+>', ' ', raw_msg).strip() if raw_msg else ""
     clean_note = " ".join(clean_note.split())[:350]
 
-    # Build Clean, Styled Telegram Message
+    # Build Clean, Styled Output Message - NEVER FILTER ANYTHING!
+    display_proto = v2_protocol or config_type
     msg_lines = [
         "╔════════════════════════╗",
-        f"   {config_type} EXTRACTED INFO",
+        f"   {display_proto} EXTRACTED INFO",
         "╚════════════════════════╝",
         "",
         f"🚨 NAME: {html_escape(name)}",
@@ -289,72 +345,78 @@ def decrypt_dark_file(file_bytes: bytes) -> Dict[str, Any]:
 
     tls_str = "ON ✅" if is_tls else "OFF ❌"
 
-    if is_v2ray or config_type in ["VMESS", "VLESS", "TROJAN"]:
-        if host:
-            msg_lines.append(f"📍 ADDRESS : {html_escape(host)}")
-        if uuid:
-            msg_lines.append(f"🔑 UUID    : {html_escape(uuid)}")
-        if ws_host:
-            msg_lines.append(f"🌐 HOST    : {html_escape(ws_host)}")
-        if ws_path:
-            msg_lines.append(f"📁 PATH    : {html_escape(ws_path)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
+    # If V2Ray / Trojan / VLESS / VMess details exist:
+    if has_v2ray or v2_uuid or v2_protocol in ["VLESS", "VMESS", "TROJAN", "SHADOWSOCKS"]:
+        if v2_host:
+            msg_lines.append(f"📍 ADDRESS : {html_escape(v2_host)}")
+        if v2_uuid:
+            label = "PASSWORD" if v2_protocol in ["TROJAN", "SHADOWSOCKS"] else "UUID    "
+            msg_lines.append(f"🔑 {label}: {html_escape(v2_uuid)}")
+        if v2_ws_host:
+            msg_lines.append(f"🌐 HOST    : {html_escape(v2_ws_host)}")
+        if v2_path:
+            msg_lines.append(f"📁 PATH    : {html_escape(v2_path)}")
+        if v2_port:
+            msg_lines.append(f"🔌 PORT    : {v2_port}")
         msg_lines.append(f"🛡️ TLS     : {tls_str}")
-        msg_lines.append(f"🚦 TRANSPORT: {html_escape(network)}")
-        msg_lines.append(f"🔒 SECURITY: {html_escape(tls_security or 'none')}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
-        if proxy_val:
-            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
-        if sni and sni != ws_host:
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+        msg_lines.append(f"🚦 TRANSPORT: {html_escape(v2_network)}")
+        msg_lines.append(f"🔒 SECURITY: {html_escape(v2_security or 'none')}")
 
-    elif "SSH" in config_type:
-        if host:
-            msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
-        if username:
-            msg_lines.append(f"👤 USER    : {html_escape(username)}")
-        if password:
-            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
-        if proxy_val:
-            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
-        if sni:
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+    # If SSH credentials exist:
+    if ssh_user or (ssh_host and not has_v2ray):
+        if ssh_host:
+            msg_lines.append(f"🌐 SSH HOST: {html_escape(ssh_host)}")
+        if ssh_port:
+            msg_lines.append(f"🔌 SSH PORT: {ssh_port}")
+        if ssh_user:
+            msg_lines.append(f"👤 SSH USER: {html_escape(ssh_user)}")
+        if ssh_pass:
+            msg_lines.append(f"🔑 SSH PASS: {html_escape(ssh_pass)}")
 
-    else:
-        if host:
-            msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        msg_lines.append(f"🔌 PORT    : {port}")
-        if username:
-            msg_lines.append(f"👤 USER    : {html_escape(username)}")
-        if password:
-            msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+    # If DNSTT / SlowDNS exists:
+    if dnstt_ns or dnstt_dns:
+        if dnstt_dns:
+            msg_lines.append(f"🧭 DNS SERVER: {html_escape(dnstt_dns)}:{dnstt_port}")
+        if dnstt_ns:
+            msg_lines.append(f"🌐 NAMESERVER: {html_escape(dnstt_ns)}")
+        if dnstt_pubkey:
+            msg_lines.append(f"🔑 PUBKEY    : {html_escape(dnstt_pubkey)}")
 
+    # Inject Mode & Proxy
+    msg_lines.append(f"🧩 INJECT  : {inject_mode}")
+    if proxy_val:
+        msg_lines.append(f"🧭 PROXY   : {html_escape(proxy_val)}")
+    if sni and sni != v2_ws_host:
+        msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
+
+    # Payload (Full Payload without filtering)
     if custom_payload:
         msg_lines.extend([
             "",
             "📦 PAYLOAD:",
-            html_escape(custom_payload[:800])
+            html_escape(custom_payload[:1500])
         ])
 
-    if ready_link:
+    # Ready Link(s)
+    if ready_links:
         msg_lines.extend([
             "",
             "────────────────────────",
             "🔗 READY LINK:",
             "────────────────────────",
-            "",
-            f"<code>{ready_link}</code>"
+            ""
         ])
+        for rl in ready_links:
+            msg_lines.append(f"<code>{html_escape(rl)}</code>")
 
+    # Expiry
     if expiry_str:
         msg_lines.extend([
             "",
             f"⏳ EXPIRY  : {html_escape(expiry_str)}"
         ])
 
+    # Note
     if clean_note:
         msg_lines.extend([
             "",
@@ -363,11 +425,12 @@ def decrypt_dark_file(file_bytes: bytes) -> Dict[str, Any]:
 
     return {
         "styled_message": "\n".join(msg_lines),
-        "protocol": config_type,
-        "server_host": host or "N/A",
-        "server_port": port or 0,
+        "protocol": display_proto,
+        "server_host": v2_host or ssh_host or "N/A",
+        "server_port": v2_port or ssh_port or 0,
         "name": name,
         "creator": "Dark Tunnel",
+        "ready_links": ready_links,
         "raw_data": data
     }
 
