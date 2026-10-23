@@ -68,27 +68,26 @@ def whitebox_encrypt_block(block, p2, p3, p4, p5):
     return bytes(state)
 
 
-def whitebox_decrypt_chunk(b64_payload: str, p2, p3, p4, p5) -> Optional[str]:
-    try:
-        raw_bytes = list(base64.b64decode(b64_payload.strip()))
-        if len(raw_bytes) < 16:
-            return None
-        iv = bytearray(raw_bytes[:16])
-        ciphertext = raw_bytes[16:]
-        decrypted_text = bytearray()
-        keystream = None
-        for j in range(len(ciphertext)):
-            block_offset = j % 16
-            if block_offset == 0:
-                keystream = whitebox_encrypt_block(iv, p2, p3, p4, p5)
-                for k in range(15, -1, -1):
-                    iv[k] = (iv[k] + 1) & 0xFF
-                    if iv[k] != 0:
-                        break
-            decrypted_text.append(ciphertext[j] ^ keystream[block_offset])
-        return decrypted_text.decode("utf-8", errors="ignore")
-    except Exception:
+def whitebox_decrypt_ctr(blob: bytes, p2, p3, p4, p5) -> Optional[str]:
+    if len(blob) < 17:
         return None
+    iv = bytearray(blob[:16])
+    ciphertext = blob[16:]
+    decrypted_text = bytearray()
+    keystream = None
+    for j in range(len(ciphertext)):
+        block_offset = j % 16
+        if block_offset == 0:
+            keystream = whitebox_encrypt_block(iv, p2, p3, p4, p5)
+            for k in range(15, -1, -1):
+                iv[k] = (iv[k] + 1) & 0xFF
+                if iv[k] != 0:
+                    break
+        decrypted_text.append(ciphertext[j] ^ keystream[block_offset])
+    try:
+        return decrypted_text.decode("utf-8")
+    except UnicodeDecodeError:
+        return decrypted_text.decode("utf-8", errors="ignore")
 
 
 def html_escape(text: Any) -> str:
@@ -116,20 +115,61 @@ def recursive_decode_npvs(obj: Any) -> Any:
     return obj
 
 
+def parse_json_safely(text: str) -> Optional[Any]:
+    if not text or not isinstance(text, str):
+        return None
+    text = text.strip()
+    # Try finding json object or array boundaries
+    for start_char, end_char in [("[", "]"), ("{", "}")]:
+        if start_char in text and end_char in text:
+            s_idx = text.find(start_char)
+            e_idx = text.rfind(end_char)
+            if s_idx != -1 and e_idx > s_idx:
+                candidate = text[s_idx:e_idx + 1]
+                try:
+                    return json.loads(candidate)
+                except Exception:
+                    pass
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
 def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
     """
-    Main decryption & formatting entrypoint for .npv, .npvt, .npvs, .npv4 files.
+    Multi-strategy decryption & formatting entrypoint for .npv, .npvt, .npvs, .npv4 files.
     """
     raw_content = file_bytes.decode("utf-8", errors="ignore").strip()
 
     config_dict = None
     meta_dict = {}
 
-    # 1. Check if it is NPVO1 or NPVS1 (Direct/b64 JSON)
-    if raw_content.startswith("NPVO1") or raw_content.startswith("NPVS1"):
+    # Strategy 0: Direct protocol link in file (vmess://, vless://, trojan://, ss://)
+    for proto_prefix in ["vmess://", "vless://", "trojan://", "ss://"]:
+        if proto_prefix in raw_content:
+            idx = raw_content.find(proto_prefix)
+            line = raw_content[idx:].splitlines()[0].strip()
+            return {
+                "styled_message": (
+                    "╔════════════════════════╗\n"
+                    f"   {proto_prefix[:-3].upper()} READY LINK\n"
+                    "╚════════════════════════╝\n\n"
+                    f"🔗 <b>READY LINK:</b>\n<code>{html_escape(line)}</code>"
+                ),
+                "protocol": proto_prefix[:-3].upper(),
+                "server_host": "N/A",
+                "server_port": 0,
+                "name": "NapsternetV Direct Link",
+                "creator": "NapsternetV (NPV)",
+                "raw_data": {"link": line}
+            }
+
+    # Strategy 1: NPVO1 / NPVS1 format
+    if "NPVO1" in raw_content or "NPVS1" in raw_content:
         cleaned = re.sub(r"^NPV[OS]1\s*", "", raw_content).strip()
-        try:
-            parsed = json.loads(cleaned)
+        parsed = parse_json_safely(cleaned)
+        if parsed:
             parsed = recursive_decode_npvs(parsed)
             if isinstance(parsed, dict) and "configs" in parsed and parsed["configs"]:
                 config_dict = parsed["configs"][0]
@@ -137,54 +177,64 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
                 config_dict = parsed[0]
             elif isinstance(parsed, dict):
                 config_dict = parsed
-        except Exception:
-            pass
 
-    # 2. Check if it is standard NPVT1 or NPVTSUB1 (Whitebox encrypted)
+    # Strategy 2: Raw / unencrypted JSON or Base64 JSON
+    if not config_dict:
+        parsed = parse_json_safely(raw_content)
+        if parsed:
+            parsed = recursive_decode_npvs(parsed)
+            if isinstance(parsed, dict) and "configs" in parsed and parsed["configs"]:
+                config_dict = parsed["configs"][0]
+            elif isinstance(parsed, list) and parsed:
+                config_dict = parsed[0]
+            elif isinstance(parsed, dict):
+                config_dict = parsed
+
+    # Strategy 3: Whitebox AES Decryption (NPVT1, NPVTSUB1, or comma/whitespace separated)
     if not config_dict:
         cleaned = raw_content
-        for prefix in ["NPVTSUB1", "NPVT1", "NPVT"]:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-                break
+        for prefix in ["NPVTSUB1", "NPVT1", "NPVT", "NPV4", "NPV", "npvt://"]:
+            cleaned = cleaned.replace(prefix, " ")
 
-        parts = cleaned.split(",")
-        if len(parts) >= 2:
-            p2, p3, p4, p5 = get_whitebox_state()
-            cfg_json_str = whitebox_decrypt_chunk(parts[1], p2, p3, p4, p5)
-            if cfg_json_str:
-                try:
-                    parsed = json.loads(cfg_json_str)
-                    if isinstance(parsed, list) and parsed:
-                        config_dict = parsed[0]
-                    elif isinstance(parsed, dict):
-                        config_dict = parsed
-                except Exception:
-                    config_dict = {"raw_decrypted": cfg_json_str}
+        tokens = re.split(r"[\s,]+", cleaned)
+        p2, p3, p4, p5 = get_whitebox_state()
 
-            if len(parts) >= 3:
-                meta_json_str = whitebox_decrypt_chunk(parts[2], p2, p3, p4, p5)
-                if meta_json_str:
-                    try:
-                        meta_dict = json.loads(meta_json_str)
-                    except Exception:
-                        pass
+        decrypted_jsons = []
+        for tok in tokens:
+            tok = tok.strip()
+            if len(tok) < 24:
+                continue
+            s = "".join(tok.split())
+            s += "=" * ((-len(s)) % 4)
+            try:
+                blob = base64.b64decode(s)
+                if len(blob) < 17:
+                    continue
+                dec_str = whitebox_decrypt_ctr(blob, p2, p3, p4, p5)
+                if dec_str:
+                    parsed = parse_json_safely(dec_str)
+                    if parsed:
+                        decrypted_jsons.append(parsed)
+            except Exception:
+                continue
 
-    # 3. If still not parsed, try raw JSON parse or base64 decode
+        # Inspect all decrypted json structures
+        for d in decrypted_jsons:
+            if isinstance(d, list) and d:
+                config_dict = d[0]
+            elif isinstance(d, dict) and ("v2rayProfile" in d or "sshConfig" in d or "address" in d):
+                config_dict = d
+            elif isinstance(d, dict) and ("isLocked" in d or "expiryDate" in d or "message" in d):
+                meta_dict = d
+
+    # Strategy 4: Fallback Base64 of plain JSON
     if not config_dict:
         try:
-            parsed = json.loads(raw_content)
-            parsed = recursive_decode_npvs(parsed)
-            if isinstance(parsed, dict) and "configs" in parsed and parsed["configs"]:
-                config_dict = parsed["configs"][0]
-            elif isinstance(parsed, list) and parsed:
-                config_dict = parsed[0]
-            elif isinstance(parsed, dict):
-                config_dict = parsed
-        except Exception:
-            try:
-                b64_dec = base64.b64decode(raw_content).decode("utf-8", errors="ignore")
-                parsed = json.loads(b64_dec)
+            clean_b64 = "".join(raw_content.split())
+            clean_b64 += "=" * ((-len(clean_b64)) % 4)
+            decoded_bytes = base64.b64decode(clean_b64)
+            parsed = parse_json_safely(decoded_bytes.decode("utf-8", errors="ignore"))
+            if parsed:
                 parsed = recursive_decode_npvs(parsed)
                 if isinstance(parsed, dict) and "configs" in parsed and parsed["configs"]:
                     config_dict = parsed["configs"][0]
@@ -192,8 +242,8 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
                     config_dict = parsed[0]
                 elif isinstance(parsed, dict):
                     config_dict = parsed
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     if not config_dict:
         raise ValueError("Failed to decrypt or parse NapsternetV / NPV config file!")
@@ -244,12 +294,12 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
 
         v2ray_prof = recursive_decode_npvs(v2ray_prof)
 
-        v_server = v2ray_prof.get("server") or host
-        v_port = v2ray_prof.get("serverPort") or port
-        v_pass = v2ray_prof.get("password") or ""
-        v_net = v2ray_prof.get("network") or "tcp"
+        v_server = v2ray_prof.get("server") or v2ray_prof.get("address") or host
+        v_port = v2ray_prof.get("serverPort") or v2ray_prof.get("port") or port
+        v_pass = v2ray_prof.get("password") or v2ray_prof.get("uuid") or v2ray_prof.get("id") or ""
+        v_net = v2ray_prof.get("network") or v2ray_prof.get("net") or "tcp"
         v_sec = v2ray_prof.get("security") or "none"
-        v_sni = v2ray_prof.get("sni") or ""
+        v_sni = v2ray_prof.get("sni") or v2ray_prof.get("host") or ""
 
         # Try parsing v2rayJson
         v2ray_json_raw = v2ray_prof.get("v2rayJson", "{}")
@@ -316,7 +366,7 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
                 "ps": name,
                 "add": host or v_server,
                 "port": str(port or v_port),
-                "id": uuid_or_pass,
+                "id": uuid_or_pass or v_pass,
                 "aid": "0",
                 "scy": "auto",
                 "net": network,
@@ -349,7 +399,7 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
             if sni:
                 params.append(f"sni={urllib.parse.quote(sni)}")
             param_str = "&".join(params)
-            ready_link = f"vless://{uuid_or_pass}@{host or v_server}:{port or v_port}?{param_str}#{urllib.parse.quote(name)}"
+            ready_link = f"vless://{uuid_or_pass or v_pass}@{host or v_server}:{port or v_port}?{param_str}#{urllib.parse.quote(name)}"
 
         elif ob_proto == "trojan":
             servers = ob_settings.get("servers", [])
@@ -382,9 +432,16 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
                 ready_link = f"ss://{b64_user}@{host}:{port}#{urllib.parse.quote(name)}"
 
         else:
-            host = v_server
-            port = str(v_port)
+            host = v_server or host
+            port = str(v_port or port)
             uuid_or_pass = v_pass
+
+            # Legacy fallback link builder if outbound was not detected
+            if v_pass and host and port:
+                if "trojan" in protocol_tag.lower() or len(v_pass) < 30:
+                    ready_link = f"trojan://{v_pass}@{host}:{port}?security={security}&sni={sni}#{urllib.parse.quote(name)}"
+                else:
+                    ready_link = f"vless://{v_pass}@{host}:{port}?type={network}&security={security}&path={urllib.parse.quote(ws_path)}&sni={sni}#{urllib.parse.quote(name)}"
 
     # ================= CASE B: SSH CONFIG =================
     elif config_type == "SSH" or "sshConfig" in config_dict:
