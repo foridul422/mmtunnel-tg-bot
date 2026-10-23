@@ -274,6 +274,9 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
     payload = ""
     proxy = ""
     ready_link = ""
+    ready_links = []
+    dnstt_ns = ""
+    dnstt_pub = ""
 
     # Parse address if available
     if address and ":" in address:
@@ -470,11 +473,14 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
         dnstt_pub = ssh_cfg.get("publicKey", "")
 
         if user and password and host:
-            ready_link = f"{user}:{password}@{host}:{port}"
+            ready_links.append(f"{user}:{password}@{host}:{port}")
         elif user and host:
-            ready_link = f"{user}@{host}:{port}"
+            ready_links.append(f"{user}@{host}:{port}")
 
-    # Build stylized message
+    if ready_link and ready_link not in ready_links:
+        ready_links.insert(0, ready_link)
+
+    # Build stylized message - ZERO FILTERING!
     msg_lines = [
         "╔════════════════════════╗",
         f"   {protocol_tag} EXTRACTED INFO",
@@ -484,7 +490,10 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
         ""
     ]
 
-    if "V2RAY" in config_type or protocol_tag in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"]:
+    has_v2 = ("V2RAY" in config_type or protocol_tag in ["VMESS", "VLESS", "TROJAN", "SHADOWSOCKS"] or uuid_or_pass)
+
+    # 1. V2Ray Connection details
+    if has_v2:
         if address:
             msg_lines.append(f"📍 ADDRESS : {html_escape(address)}")
         if uuid_or_pass:
@@ -492,7 +501,7 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
             msg_lines.append(f"🔑 {label} : {html_escape(uuid_or_pass)}")
         if ws_host:
             msg_lines.append(f"🌐 HOST    : {html_escape(ws_host)}")
-        elif host:
+        elif host and not user:
             msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
         if ws_path:
             msg_lines.append(f"📁 PATH    : {html_escape(ws_path)}")
@@ -501,52 +510,51 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
         msg_lines.append(f"🛡️ TLS     : {tls_str}")
         msg_lines.append(f"🚦 TRANSPORT: {html_escape(network)}")
         msg_lines.append(f"🔒 SECURITY: {html_escape(security or 'none')}")
-        if sni and sni != ws_host:
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
-    elif "SSH" in config_type or "SSH" in protocol_tag:
-        if host:
+    # 2. SSH credentials (ALWAYS output if present, even alongside V2Ray)
+    if user or (password and not has_v2):
+        if not has_v2 and host:
             msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        if port:
+        if not has_v2 and port:
             msg_lines.append(f"🔌 PORT    : {html_escape(port)}")
         if user:
             msg_lines.append(f"👤 USER    : {html_escape(user)}")
         if password:
             msg_lines.append(f"🔑 PASS    : {html_escape(password)}")
-        if proxy:
-            msg_lines.append(f"🧭 PROXY   : {html_escape(proxy)}")
-        if sni:
-            msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
-        if dnstt_ns:
-            msg_lines.append(f"📡 DNSTT NS: {html_escape(dnstt_ns)}")
-        if dnstt_pub:
-            msg_lines.append(f"🔑 PUBKEY  : {html_escape(dnstt_pub)}")
 
-    else:
-        if host:
-            msg_lines.append(f"🌐 HOST    : {html_escape(host)}")
-        if port:
-            msg_lines.append(f"🔌 PORT    : {html_escape(port)}")
-        if uuid_or_pass:
-            msg_lines.append(f"🔑 PASS    : {html_escape(uuid_or_pass)}")
+    # 3. Proxy & SNI
+    if proxy:
+        msg_lines.append(f"🧭 PROXY   : {html_escape(proxy)}")
+    if sni and sni != ws_host:
+        msg_lines.append(f"🌐 SNI     : {html_escape(sni)}")
 
+    # 4. DNSTT details
+    if dnstt_ns:
+        msg_lines.append(f"📡 DNSTT NS: {html_escape(dnstt_ns)}")
+    if dnstt_pub:
+        msg_lines.append(f"🔑 PUBKEY  : {html_escape(dnstt_pub)}")
+
+    # 5. Payload (ALWAYS output if present)
     if payload and payload.strip():
         msg_lines.extend([
             "",
             "📦 PAYLOAD:",
-            html_escape(payload.strip()[:800])
+            html_escape(payload.strip()[:1500])
         ])
 
-    if ready_link:
+    # 6. Ready Links (ALWAYS output all ready links)
+    if ready_links:
         msg_lines.extend([
             "",
             "────────────────────────",
             "🔗 READY LINK:",
             "────────────────────────",
-            "",
-            f"<code>{ready_link}</code>"
+            ""
         ])
+        for r_link in ready_links:
+            msg_lines.append(f"<code>{html_escape(r_link)}</code>")
 
+    # 7. Expiry & Note
     if expiry_date:
         msg_lines.extend([
             "",
@@ -567,6 +575,7 @@ def decrypt_npv_file(file_bytes: bytes) -> Dict[str, Any]:
         "server_port": int(port) if str(port).isdigit() else 0,
         "name": name,
         "creator": "NapsternetV (NPV)",
+        "ready_links": ready_links,
         "raw_data": config_dict
     }
 
