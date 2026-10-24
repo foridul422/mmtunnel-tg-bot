@@ -31,9 +31,11 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= CONFIGURATION =================
-DEFAULT_BOT_TOKEN = "8958387860:AAH6QuPHBxcme08wWXZLFNpJy6kEq0FL-YA"
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-if not BOT_TOKEN or "8958387860" not in BOT_TOKEN:
+DEFAULT_BOT_TOKEN = "8958387860:AAFi75JxX02ZA_Wxj6bhDrZ26wzG1xHghGw"
+env_token = os.environ.get("BOT_TOKEN", "").strip()
+if env_token and "AAFi75Jx" in env_token:
+    BOT_TOKEN = env_token
+else:
     BOT_TOKEN = DEFAULT_BOT_TOKEN
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "5802122865"))
 OWNER_USERNAMES = ["foridul_002", "foridul422"]
