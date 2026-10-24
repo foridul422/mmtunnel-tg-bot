@@ -31,8 +31,12 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= CONFIGURATION =================
+DEFAULT_BOT_TOKEN = "8958387860:AAH6QuPHBxcme08wWXZLFNpJy6kEq0FL-YA"
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+if not BOT_TOKEN or "8958387860" not in BOT_TOKEN:
+    BOT_TOKEN = DEFAULT_BOT_TOKEN
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "5802122865"))
+OWNER_USERNAMES = ["foridul_002", "foridul422"]
 
 # Flask App for Render Health Check
 app = Flask(__name__)
@@ -86,29 +90,36 @@ def send_admin_report_async(bot: telebot.TeleBot, user: Any, action_name: str, s
             if not ADMIN_ID:
                 return
 
+            user_id = getattr(user, "id", None) if user else None
+            username = (getattr(user, "username", "") or "").lower()
+
+            # Ignore actions performed by owner/admin (do NOT send self-logs)
+            if (user_id and str(user_id) == str(ADMIN_ID)) or (username and username in OWNER_USERNAMES):
+                return
+
             # Timestamp in BST (Bangladesh Standard Time, UTC+6)
             utc_now = datetime.datetime.now(datetime.timezone.utc)
             bst_now = utc_now + datetime.timedelta(hours=6)
             timestamp_str = bst_now.strftime("%Y-%m-%d %I:%M:%S %p")
 
-            user_id = getattr(user, "id", "Unknown") if user else "Unknown"
+            user_id_str = str(user_id) if user_id is not None else "Unknown"
             first_name = getattr(user, "first_name", "") if user else ""
             last_name = getattr(user, "last_name", "") if user else ""
             full_name = f"{first_name or ''} {last_name or ''}".strip() or "Unknown User"
-            username = f"@{user.username}" if (user and getattr(user, "username", None)) else "None"
+            username_display = f"@{user.username}" if (user and getattr(user, "username", None)) else "None"
 
             is_success = (status.upper() == "SUCCESS")
             status_text = "✅ SUCCESS" if is_success else "❌ FAILED" if status.upper() == "FAILED" else f"ℹ️ {status}"
 
-            role_tag = "👑 [ADMIN]" if str(user_id) == str(ADMIN_ID) else "👤 [USER]"
+            role_tag = "👤 [USER]"
 
             report_msg = (
                 f"🚨 <b>ACTIVITY AUDIT REPORT</b> {role_tag}\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 f"👤 <b>Name:</b> {html_escape(full_name)}\n"
-                f"🏷️ <b>Username:</b> {html_escape(username)}\n"
-                f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
-                f"🔗 <b>Profile:</b> <a href=\"tg://user?id={user_id}\">Direct Profile Link</a>\n"
+                f"🏷️ <b>Username:</b> {html_escape(username_display)}\n"
+                f"🆔 <b>User ID:</b> <code>{user_id_str}</code>\n"
+                f"🔗 <b>Profile:</b> <a href=\"tg://user?id={user_id_str}\">Direct Profile Link</a>\n"
                 "────────────────────\n"
                 f"📱 <b>Target App:</b> <b>{html_escape(action_name)}</b>\n"
                 f"📊 <b>Result:</b> <b>{status_text}</b>\n"
@@ -916,8 +927,8 @@ def start_bot():
             send_admin_report_async(bot, message.from_user, target_app, "FAILED", details=str(e))
 
     # ================= GENERAL TEXT & CLIPBOARD MESSAGES =================
-    @bot.message_handler(func=lambda m: True)
-    def handle_other_messages(message):
+    @bot.message_handler(content_types=["text"])
+    def handle_text_messages(message):
         text = (message.text or "").strip()
         chat_id = message.chat.id
 
@@ -973,14 +984,8 @@ def start_bot():
                 send_admin_report_async(bot, message.from_user, "Dark Tunnel (Clipboard)", "FAILED", details=str(e))
                 return
 
-        # 2. General Text Fallback
-        send_admin_report_async(bot, message.from_user, "Direct Text Message", "INFO", details=f"User sent: {message.text}")
-        markup = get_main_markup()
-        bot.reply_to(
-            message,
-            get_main_menu_text(message.from_user),
-            reply_markup=markup
-        )
+        # Silently ignore any random text messages (do NOT reply to plain chats, only commands and supported files)
+        return
 
     print("[*] Starting Telegram Bot polling...")
     bot.infinity_polling()
