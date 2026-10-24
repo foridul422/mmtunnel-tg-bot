@@ -63,6 +63,7 @@ from engine_ursanet import decrypt_ursa_live, decrypt_vipsniper_pro
 from engine_sensei_izph import decrypt_sensei_tunnel_live, decrypt_izph_vpn_pro_live
 from engine_iptunnel import decrypt_iptunnel_live
 from boost_vpn import decrypt_boost_vpn_live
+from engine_bekarvpn import decrypt_bekar_vpn_live
 from engine_httpcustom import decrypt_hc_file
 from engine_darktunnel import decrypt_dark_file
 from engine_httpinjector import decrypt_ehi_file
@@ -218,7 +219,11 @@ def get_vpn_live_markup() -> InlineKeyboardMarkup:
         InlineKeyboardButton("IPTunnel", callback_data="dec_iptunnel", style="primary"),
         InlineKeyboardButton("Boost VPN", callback_data="dec_boostvpn", style="primary")
     )
-    # Row 5: Back to Main Menu
+    # Row 5: BEKAR VPN
+    markup.row(
+        InlineKeyboardButton("BEKAR VPN", callback_data="dec_bekarvpn", style="primary")
+    )
+    # Row 6: Back to Main Menu
     markup.row(
         InlineKeyboardButton("Back to Main Menu", callback_data="back_main", style="danger")
     )
@@ -760,6 +765,57 @@ def start_bot():
                     message_id=status_msg.message_id
                 )
                 send_admin_report_async(bot, call.from_user, "Boost VPN (Live)", "FAILED", details=str(e))
+
+        elif call.data == "dec_bekarvpn":
+            bot.answer_callback_query(call.id, "⏳ Decrypting BEKAR VPN Config...")
+            status_msg = bot.send_message(
+                chat_id,
+                "⏳ <b>Fetching & Decrypting BEKAR VPN...</b>\n"
+                "📡 Connecting to Live GitHub Config (VPN619/Bekar)...\n"
+                "🔐 Reversing XxTea (Delta 772515655) & Double Char Shift (4669)...\n"
+                "🔓 Recursively decrypting nested server IPs, credentials & payloads...\n"
+                "Please wait a few seconds."
+            )
+
+            try:
+                res = decrypt_bekar_vpn_live()
+                txt_bytes = io.BytesIO(res["txt_content"].encode("utf-8"))
+                txt_bytes.name = "Bekar_VPN_Decrypted.txt"
+
+                version = res["version"]
+                total_servers = res.get("total_servers", 0)
+                total_http = res.get("total_http_networks", 0)
+                total_ssl = res.get("total_ssl_networks", 0)
+                release_notes = res.get("release_notes", "").strip()
+                if release_notes:
+                    first_line_notes = release_notes.split("\n")[0]
+                else:
+                    first_line_notes = "OTA Live Cloud Config"
+
+                caption = (
+                    "✅ <b>BEKAR VPN 100% Fully Decrypted!</b>\n\n"
+                    f"📦 <b>Config Version:</b> <code>{version}</code>\n"
+                    f"🌐 <b>Total Servers:</b> <code>{total_servers}</code>\n"
+                    f"📡 <b>HTTP Networks:</b> <code>{total_http}</code>\n"
+                    f"🔒 <b>SSL Networks:</b> <code>{total_ssl}</code>\n"
+                    f"📝 <b>Notes:</b> <i>{first_line_notes}</i>\n"
+                    "⚡ <b>Filter:</b> <code>NONE (100% Raw Decrypted Data)</code>\n\n"
+                    "👑 <b>By: @Foridul_002 🇧🇩</b>"
+                )
+
+                bot.send_document(chat_id, txt_bytes, caption=caption)
+                bot.delete_message(chat_id, status_msg.message_id)
+
+                details = f"Version: {version}\nServers: {total_servers}\nHTTP Networks: {total_http}\nSSL Networks: {total_ssl}"
+                send_admin_report_async(bot, call.from_user, "BEKAR VPN (Live)", "SUCCESS", details=details)
+
+            except Exception as e:
+                bot.edit_message_text(
+                    f"❌ <b>BEKAR VPN Decryption Failed!</b>\nError: <code>{e}</code>",
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id
+                )
+                send_admin_report_async(bot, call.from_user, "BEKAR VPN (Live)", "FAILED", details=str(e))
 
     # ================= INCOMING DOCUMENT / FILE HANDLER =================
     @bot.message_handler(content_types=["document"])
